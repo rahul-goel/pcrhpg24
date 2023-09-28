@@ -15,10 +15,10 @@
 #include "compute_loop_las2/compute_loop_las2.h"
 #include "compute_loop_las_cuda/compute_loop_las_cuda.h"
 #include "compute_loop_las_hqs/compute_loop_las_hqs.h"
-#include "compute_loop_las_hqs_vr/compute_loop_las_hqs_vr.h"
+// #include "compute_loop_las_hqs_vr/compute_loop_las_hqs_vr.h"
 #include "compute_loop_nodes/compute_loop_nodes.h"
 #include "compute_loop_nodes_hqs/compute_loop_nodes_hqs.h"
-#include "compute_loop_nodes_hqs_vr/compute_loop_nodes_hqs_vr.h"
+// #include "compute_loop_nodes_hqs_vr/compute_loop_nodes_hqs_vr.h"
 
 #include "compute_2021_earlyz/compute_2021_earlyz.h"
 #include "compute_2021_earlyz_reduce/compute_2021_earlyz_reduce.h"
@@ -345,10 +345,10 @@ int main(){
 	{ // POTREE FORMAT
 		auto computeLoopNodes = new ComputeLoopNodes(renderer.get(), potreedata);
 		auto computeLoopNodesHqs = new ComputeLoopNodesHqs(renderer.get(), potreedata);
-		auto computeLoopNodesHqsVr = new ComputeLoopNodesHqsVr(renderer.get(), potreedata);
+		// auto computeLoopNodesHqsVr = new ComputeLoopNodesHqsVr(renderer.get(), potreedata);
 		Runtime::addMethod((Method*)computeLoopNodes);
 		Runtime::addMethod((Method*)computeLoopNodesHqs);
-		Runtime::addMethod((Method*)computeLoopNodesHqsVr);
+		// Runtime::addMethod((Method*)computeLoopNodesHqsVr);
 	}
 
 	{ // OLD METHODS / 16 byte format
@@ -434,51 +434,51 @@ int main(){
 
 		if(renderer->vrEnabled){
 
-			auto ovr = OpenVRHelper::instance();
+			// auto ovr = OpenVRHelper::instance();
 
 
-			auto flip = glm::dmat4(
-				1.0, 0.0, 0.0, 0.0,
-				0.0, 0.0, 1.0, 0.0,
-				0.0, -1.0, 0.0, 0.0,
-				0.0, 0.0, 0.0, 1.0
-			);
+			// auto flip = glm::dmat4(
+			// 	1.0, 0.0, 0.0, 0.0,
+			// 	0.0, 0.0, 1.0, 0.0,
+			// 	0.0, -1.0, 0.0, 0.0,
+			// 	0.0, 0.0, 0.0, 1.0
+			// );
 
-			auto& viewLeft = renderer->views[0];
-			auto& viewRight = renderer->views[1];
+			// auto& viewLeft = renderer->views[0];
+			// auto& viewRight = renderer->views[1];
 
 			
 
 
-			if(!Debug::dummyVR){
-				auto size = ovr->getRecommmendedRenderTargetSize();
-				viewLeft.framebuffer->setSize(size[0], size[1]);
-				viewRight.framebuffer->setSize(size[0], size[1]);
+			// if(!Debug::dummyVR){
+			// 	auto size = ovr->getRecommmendedRenderTargetSize();
+			// 	viewLeft.framebuffer->setSize(size[0], size[1]);
+			// 	viewRight.framebuffer->setSize(size[0], size[1]);
 
-				auto poseHMD = ovr->hmdPose;
-				auto poseLeft = ovr->getEyePose(vr::Hmd_Eye::Eye_Left);
-				auto poseRight = ovr->getEyePose(vr::Hmd_Eye::Eye_Right);
+			// 	auto poseHMD = ovr->hmdPose;
+			// 	auto poseLeft = ovr->getEyePose(vr::Hmd_Eye::Eye_Left);
+			// 	auto poseRight = ovr->getEyePose(vr::Hmd_Eye::Eye_Right);
 
-				viewLeft.view = glm::inverse(flip * poseHMD * poseLeft);
-				viewLeft.proj = ovr->getProjection(vr::Hmd_Eye::Eye_Left, 0.01, 10'000.0);
+			// 	viewLeft.view = glm::inverse(flip * poseHMD * poseLeft);
+			// 	viewLeft.proj = ovr->getProjection(vr::Hmd_Eye::Eye_Left, 0.01, 10'000.0);
 
-				viewRight.view = glm::inverse(flip * poseHMD * poseRight);
-				viewRight.proj = ovr->getProjection(vr::Hmd_Eye::Eye_Right, 0.01, 10'000.0);
-			}else{
-				ivec2 size = {2468, 2740};
-				viewLeft.framebuffer->setSize(size[0], size[1]);
-				viewRight.framebuffer->setSize(size[0], size[1]);
-			}
+			// 	viewRight.view = glm::inverse(flip * poseHMD * poseRight);
+			// 	viewRight.proj = ovr->getProjection(vr::Hmd_Eye::Eye_Right, 0.01, 10'000.0);
+			// }else{
+			// 	ivec2 size = {2468, 2740};
+			// 	viewLeft.framebuffer->setSize(size[0], size[1]);
+			// 	viewRight.framebuffer->setSize(size[0], size[1]);
+			// }
 
-			//viewLeft.framebuffer->setSize(1440, 1600);
-			glBindFramebuffer(GL_FRAMEBUFFER, viewLeft.framebuffer->handle);
-			glClearColor(0.8, 0.2, 0.3, 1.0);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			// //viewLeft.framebuffer->setSize(1440, 1600);
+			// glBindFramebuffer(GL_FRAMEBUFFER, viewLeft.framebuffer->handle);
+			// glClearColor(0.8, 0.2, 0.3, 1.0);
+			// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-			//viewRight.framebuffer->setSize(1440, 1600);
-			glBindFramebuffer(GL_FRAMEBUFFER, viewRight.framebuffer->handle);
-			glClearColor(0.0, 0.8, 0.3, 1.0);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			// //viewRight.framebuffer->setSize(1440, 1600);
+			// glBindFramebuffer(GL_FRAMEBUFFER, viewRight.framebuffer->handle);
+			// glClearColor(0.0, 0.8, 0.3, 1.0);
+			// glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		}else{
 

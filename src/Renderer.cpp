@@ -275,15 +275,15 @@ void Renderer::loop(function<void(void)> update, function<void(void)> render){
 		}
 
 		if(vrEnabled && !Debug::dummyVR){
-			auto ovr = OpenVRHelper::instance();
-			ovr->updatePose();
-			ovr->processEvents();
+			// auto ovr = OpenVRHelper::instance();
+			// ovr->updatePose();
+			// ovr->processEvents();
 
-			float near = 0.1;
-			float far = 100'000.0;
+			// float near = 0.1;
+			// float far = 100'000.0;
 
-			dmat4 projLeft = ovr->getProjection(vr::EVREye::Eye_Left, near, far);
-			dmat4 projRight = ovr->getProjection(vr::EVREye::Eye_Right, near, far);
+			// dmat4 projLeft = ovr->getProjection(vr::EVREye::Eye_Left, near, far);
+			// dmat4 projRight = ovr->getProjection(vr::EVREye::Eye_Right, near, far);
 		}
 
 		{ // UPDATE & RENDER
@@ -488,7 +488,7 @@ void Renderer::loop(function<void(void)> update, function<void(void)> render){
 
 			if(Debug::frameStats.size() > 0 && ImGui::Button("copy")) {
 				
-				toClipboard(ssStats.str());
+				// toClipboard(ssStats.str());
 			}
 
 			ImGui::End();
@@ -551,7 +551,7 @@ void Renderer::loop(function<void(void)> update, function<void(void)> render){
 
 				string str = ss.str();
 				
-				toClipboard(str);
+				// toClipboard(str);
 			}
 
 			if (ImGui::Button("copy vr matrices")) {
@@ -699,11 +699,11 @@ void Renderer::loop(function<void(void)> update, function<void(void)> render){
 
 		if(vrEnabled && !Debug::dummyVR){
 			
-			GLuint left = views[0].framebuffer->colorAttachments[0]->handle;
-			GLuint right = views[1].framebuffer->colorAttachments[0]->handle;
+			// GLuint left = views[0].framebuffer->colorAttachments[0]->handle;
+			// GLuint right = views[1].framebuffer->colorAttachments[0]->handle;
 
-			OpenVRHelper::instance()->submit(left, right);
-			OpenVRHelper::instance()->postPresentHandoff();
+			// OpenVRHelper::instance()->submit(left, right);
+			// OpenVRHelper::instance()->postPresentHandoff();
 		}
 
 		// FINISH FRAME
@@ -766,12 +766,12 @@ void Renderer::toggleVR() {
 	
 	if(this->vrEnabled){
 		if(!Debug::dummyVR){
-			OpenVRHelper::instance()->stop();
+			// OpenVRHelper::instance()->stop();
 		}
 		this->vrEnabled = false;
 	}else{
 		if(!Debug::dummyVR){
-			OpenVRHelper::instance()->start();
+			// OpenVRHelper::instance()->start();
 		}
 		this->vrEnabled = true;
 	}
@@ -785,13 +785,13 @@ void Renderer::readBatches(){
 void Renderer::setVR(bool enable) {
 	if(enable){
 		if(!Debug::dummyVR){
-			OpenVRHelper::instance()->start();
+			// OpenVRHelper::instance()->start();
 		}
 
 		this->vrEnabled = enable;
 	}else{
 		if(!Debug::dummyVR){
-			OpenVRHelper::instance()->stop();
+			// OpenVRHelper::instance()->stop();
 		}
 
 		this->vrEnabled = enable;

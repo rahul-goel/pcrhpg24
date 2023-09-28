@@ -5,8 +5,8 @@
 #include <vector>
 #include <string>
 
-#include "GL\glew.h"
-#include "GLFW\glfw3.h"
+#include "GL/glew.h"
+#include "GLFW/glfw3.h"
 
 #include "imgui.h"
 #include "imgui_impl_opengl3.h"
@@ -114,6 +114,18 @@ struct Renderer{
 		GLuint handle;
 		glCreateBuffers(1, &handle);
 		glNamedBufferStorage(handle, size, 0, GL_DYNAMIC_STORAGE_BIT | GL_MAP_READ_BIT );
+
+		GLBuffer buffer;
+		buffer.handle = handle;
+		buffer.size = size;
+
+		return buffer;
+	}
+
+	inline GLBuffer createSparseBuffer(int64_t size){
+		GLuint handle;
+		glCreateBuffers(1, &handle);
+		glNamedBufferStorage(handle, size, 0, GL_DYNAMIC_STORAGE_BIT | GL_SPARSE_STORAGE_BIT_ARB );
 
 		GLBuffer buffer;
 		buffer.handle = handle;
