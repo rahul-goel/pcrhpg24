@@ -16,8 +16,8 @@
 #include "compute_loop_las_cuda/compute_loop_las_cuda.h"
 #include "compute_loop_las_hqs/compute_loop_las_hqs.h"
 // #include "compute_loop_las_hqs_vr/compute_loop_las_hqs_vr.h"
-#include "compute_loop_nodes/compute_loop_nodes.h"
-#include "compute_loop_nodes_hqs/compute_loop_nodes_hqs.h"
+// #include "compute_loop_nodes/compute_loop_nodes.h"
+// #include "compute_loop_nodes_hqs/compute_loop_nodes_hqs.h"
 // #include "compute_loop_nodes_hqs_vr/compute_loop_nodes_hqs_vr.h"
 
 #include "compute_2021_earlyz/compute_2021_earlyz.h"
@@ -33,7 +33,7 @@
 #include "Method.h"
 #include "compute/ComputeLasLoader.h"
 #include "compute/LasLoaderStandard.h"
-#include "compute/PotreeData.h"
+// #include "compute/PotreeData.h"
 
 
 
@@ -267,7 +267,8 @@ int main(){
 		setting.path_potree = "D:/dev/pointclouds/tuwien_baugeschichte/candi Banyunibo/Scan10 - POLYDATA - Candi_Banyunibo010.las_converted";
 		//setting.path_las = "D:/dev/pointclouds/tuwien_baugeschichte/candi Banyunibo/morton/10.las";
 		// setting.path_las = "D:/dev/pointclouds/tuwien_baugeschichte/candi Banyunibo/candi_banyunibo.las";
-		setting.path_las = "F:/temp/wgtest/banyunibo_laserscans/merged.las";
+		// setting.path_las = "F:/temp/wgtest/banyunibo_laserscans/merged.las";
+		setting.path_las = "/home/rg/lidar_data/tree.las";
 
 		// outside
 		setting.yaw = 4.39;
@@ -298,7 +299,7 @@ int main(){
 	// banyunibo_outside, banyunibo_outside_morton
 	// banyunibo_inside, banyunibo_inside_morton
 	// niederweiden_morton
-	Setting& setting = settings["banyunibo_outside_morton"];
+	Setting& setting = settings["arbegen"];
 	
 	renderer->controls->yaw = setting.yaw;
 	renderer->controls->pitch = setting.pitch;
@@ -325,7 +326,7 @@ int main(){
 
 	}
 
-	auto potreedata = PotreeData::create(setting.path_potree);
+	// auto potreedata = PotreeData::create(setting.path_potree);
 	auto las_encode_444 = ComputeLasData::create(setting.path_las);
 	auto las_standard = LasStandardData::create(setting.path_las);
 
@@ -343,11 +344,11 @@ int main(){
 	}
 
 	{ // POTREE FORMAT
-		auto computeLoopNodes = new ComputeLoopNodes(renderer.get(), potreedata);
-		auto computeLoopNodesHqs = new ComputeLoopNodesHqs(renderer.get(), potreedata);
+		// auto computeLoopNodes = new ComputeLoopNodes(renderer.get(), potreedata);
+		// auto computeLoopNodesHqs = new ComputeLoopNodesHqs(renderer.get(), potreedata);
 		// auto computeLoopNodesHqsVr = new ComputeLoopNodesHqsVr(renderer.get(), potreedata);
-		Runtime::addMethod((Method*)computeLoopNodes);
-		Runtime::addMethod((Method*)computeLoopNodesHqs);
+		// Runtime::addMethod((Method*)computeLoopNodes);
+		// Runtime::addMethod((Method*)computeLoopNodesHqs);
 		// Runtime::addMethod((Method*)computeLoopNodesHqsVr);
 	}
 
