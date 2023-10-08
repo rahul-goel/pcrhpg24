@@ -8,17 +8,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 file(GLOB SOURCES "src/*")
 add_executable(${PROJECT_NAME}
-  src/main.cpp
-  src/Renderer.cpp
-  src/Framebuffer.cpp
-  src/GLTimerQueries.cpp
-  src/OrbitControls.cpp
-  src/Texture.cpp
-  include/unsuck_platform_specific.cpp
-  modules/compute/ComputeLasLoader.cpp
-  modules/compute/LasLoaderSparse.cpp
-)
-add_executable(rahul
+  # src/main.cpp
   src/rahul.cpp
   src/Renderer.cpp
   src/Framebuffer.cpp
@@ -29,8 +19,7 @@ add_executable(rahul
   modules/compute/ComputeLasLoader.cpp
   modules/compute/LasLoaderSparse.cpp
 )
-
-include_directories(
+target_include_directories(${PROJECT_NAME} PRIVATE
     include
     modules
 )
@@ -49,24 +38,20 @@ target_link_libraries(${PROJECT_NAME}
 
 # OpenGL
 find_package(OpenGL REQUIRED)
-# target_link_libraries(${PROJECT_NAME} ${OPENGL_LIBRARY})
-link_libraries(${OPENGL_LIBRARY})
+target_link_libraries(${PROJECT_NAME} ${OPENGL_LIBRARY})
 
 # fmt 
 # add_subdirectory(libs/fmt)
 # target_link_libraries(${PROJECT_NAME} fmt::fmt)
 
 # add_subdirectory(libs/libmorton)
-include_directories(libs/libmorton/include/libmorton)
+target_include_directories(${PROJECT_NAME} PRIVATE
+	libs/libmorton/include/libmorton)
 
 # glew
 target_include_directories(${PROJECT_NAME} PRIVATE
 	libs/glew/include)
 target_sources(${PROJECT_NAME} PRIVATE
-	libs/glew/glew.c)
-target_include_directories(rahul PRIVATE
-	libs/glew/include)
-target_sources(rahul PRIVATE
 	libs/glew/glew.c)
 
 # GLFW
@@ -75,17 +60,18 @@ target_sources(rahul PRIVATE
 # 	${glfw_SOURCE_DIR}/include)
 # target_link_libraries(${PROJECT_NAME} glfw)
 add_subdirectory(libs/glfw)
-link_libraries(glfw)
+target_link_libraries(${PROJECT_NAME} glfw)
 
 # glm
-include_directories(libs/glm)
+target_include_directories(${PROJECT_NAME} PRIVATE
+	libs/glm)
 
 # add json
 include_directories(libs/json)
 
 
 # imgui
-include_directories(
+target_include_directories(${PROJECT_NAME} PRIVATE
 	libs/imgui
 	libs/imgui/backends)
 target_sources(${PROJECT_NAME} PRIVATE
@@ -96,21 +82,11 @@ target_sources(${PROJECT_NAME} PRIVATE
 	libs/imgui/imgui_widgets.cpp
 	libs/imgui/backends/imgui_impl_glfw.cpp
 	libs/imgui/backends/imgui_impl_opengl3.cpp)
-target_sources(rahul PRIVATE
-	libs/imgui/imgui.cpp
-	libs/imgui/imgui_demo.cpp
-	libs/imgui/imgui_draw.cpp
-	libs/imgui/imgui_tables.cpp
-	libs/imgui/imgui_widgets.cpp
-	libs/imgui/backends/imgui_impl_glfw.cpp
-	libs/imgui/backends/imgui_impl_opengl3.cpp)
 
 # implot
-include_directories(libs/implot)
+target_include_directories(${PROJECT_NAME} PRIVATE
+	libs/implot)
 target_sources(${PROJECT_NAME} PRIVATE
-	libs/implot/implot_items.cpp
-	libs/implot/implot.cpp)
-target_sources(rahul PRIVATE
 	libs/implot/implot_items.cpp
 	libs/implot/implot.cpp)
 
@@ -118,7 +94,4 @@ target_sources(rahul PRIVATE
 add_subdirectory(libs/laszip)
 target_link_libraries(${PROJECT_NAME} laszip)
 target_include_directories(${PROJECT_NAME} PRIVATE
-	libs/laszip)
-target_link_libraries(rahul laszip)
-target_include_directories(rahul PRIVATE
 	libs/laszip)
