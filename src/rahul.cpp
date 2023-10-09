@@ -1,3 +1,4 @@
+#include "morton3D_LUTs.h"
 #include "unsuck.hpp"
 #include "glm/common.hpp"
 #include "glm/matrix.hpp"
@@ -19,8 +20,11 @@
 #define TARGET_START_RGBA TARGET_START_Z + 4
 #define TARGET_SZ         4 * 4
 
+#define NUM_THREADS 128
+
 string LASFILE = "/home/rg/lidar_data/morro_bay.las";
-const int64_t BATCH_SIZE = 10240;
+// string LASFILE = "/home/rg/lidar_data/tree.las";
+const int64_t BATCH_SIZE = NUM_THREADS * 1024;
 
 using namespace std;
 using glm::dvec3;
@@ -156,9 +160,9 @@ vector<unsigned int> get_morton_order(vector<int32_t> &actual_x, vector<int32_t>
     uint32_t shifted_x = (uint32_t) ((int64_t) actual_x[i] - (int64_t) INT_MIN);
     uint32_t shifted_y = (uint32_t) ((int64_t) actual_y[i] - (int64_t) INT_MIN);
     uint32_t shifted_z = (uint32_t) ((int64_t) actual_z[i] - (int64_t) INT_MIN);
-    shifted_x = shifted_x >> (32 - 21);
-    shifted_y = shifted_y >> (32 - 21);
-    shifted_z = shifted_z >> (32 - 21);
+    // shifted_x = shifted_x >> (32 - 21);
+    // shifted_y = shifted_y >> (32 - 21);
+    // shifted_z = shifted_z >> (32 - 21);
 
     point_to_morton[i] = libmorton::morton3D_64_encode(shifted_x, shifted_y, shifted_z);
   }
@@ -170,6 +174,25 @@ vector<unsigned int> get_morton_order(vector<int32_t> &actual_x, vector<int32_t>
   });
 
   return order;
+}
+
+vector<pair<int,int>> split_batch_indices_into_threads(pair<int,int> batch) {
+  vector<pair<int,int>> threads(NUM_THREADS);
+  int per_thread_min = batch.second / NUM_THREADS;
+  int gets_more = batch.second - NUM_THREADS * per_thread_min;
+
+  // first "gets_more" get "per_thread_min + 1". remaining get "per_thread_min"
+  int done = 0;
+  for (int i = 0; i < NUM_THREADS; ++i) {
+    if (i < gets_more) {
+      threads[i] = {done, per_thread_min + 1};
+      done += per_thread_min + 1;
+    } else {
+      threads[i] = {done, per_thread_min};
+      done += per_thread_min;
+    }
+  }
+  return threads;
 }
 
 int main() {
@@ -219,49 +242,74 @@ int main() {
   }
 
   // huffman encode all delta values
-  vector<vector<uint32_t>> encoded_x(batches.size()), encoded_y(batches.size()), encoded_z(batches.size());
+  vector<vector<uint32_t>> encoded_x(batches.size() * NUM_THREADS), encoded_y(batches.size() * NUM_THREADS), encoded_z(batches.size() * NUM_THREADS);
 
   // std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
   // std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
   // std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[µs]" << std::endl;
 
-  for (int batch_idx = 0; batch_idx < batches.size(); ++batch_idx) {
-    auto &[start_idx, batch_size] = batches[batch_idx];
-    vector<int32_t> data_x(actual_x.begin() + start_idx, actual_x.begin() + start_idx + batch_size);
-    for (int idx = data_x.size() - 1; idx >= 1; --idx) data_x[idx] -= data_x[idx - 1];
-    data_x[0] = 0;
-    auto bitstream_x = hfmn.compress_udtype<uint32_t>(data_x);
-    encoded_x[batch_idx] = bitstream_x;
-
-    vector<int32_t> data_y(actual_y.begin() + start_idx, actual_y.begin() + start_idx + batch_size);
-    for (int idx = data_y.size() - 1; idx >= 1; --idx) data_y[idx] -= data_y[idx - 1];
-    data_y[0] = 0;
-    auto bitstream_y = hfmn.compress_udtype<uint32_t>(data_y);
-    encoded_y[batch_idx] = bitstream_y;
-
-    vector<int32_t> data_z(actual_z.begin() + start_idx, actual_z.begin() + start_idx + batch_size);
-    for (int idx = data_z.size() - 1; idx >= 1; --idx) data_z[idx] -= data_z[idx - 1];
-    data_z[0] = 0;
-    auto bitstream_z = hfmn.compress_udtype<uint32_t>(data_z);
-    encoded_z[batch_idx] = bitstream_z;
-  }
-  cout << "done" << endl;
-
   double total_actual_size = 0, total_compressed_size = 0;
-  for (int i = 0; i < batches.size(); ++i) {
-    auto &[start_idx, batch_size] = batches[i];
-    cout << "Start Idx: " << start_idx << endl;
-    cout << "Batch Size: " << batch_size << endl;
-    int actual_size = (batch_size * sizeof(int32_t) * 3);
-    int compressed_size = (encoded_x[i].size() + encoded_y[i].size() + encoded_z[i].size()) * sizeof(uint32_t);
-    cout << "Actual Size (bytes): " << actual_size << endl;
-    cout << "Compressed Size (bytes): " << compressed_size << endl;
-    cout << "Compressiont Ratio: " << (double) actual_size / (double) compressed_size << endl;
-    total_actual_size += (double) actual_size;
-    total_compressed_size += (double) compressed_size;
+  for (int batch_idx = 0; batch_idx < batches.size(); ++batch_idx) {
+    auto split_batch = split_batch_indices_into_threads(batches[batch_idx]);
+    for (int tid = 0; tid < split_batch.size(); ++tid) {
+      auto &[start_idx, batch_thread_size] = split_batch[tid];
+      vector<int32_t> data_x(actual_x.begin() + start_idx, actual_x.begin() + start_idx + batch_thread_size);
+      for (int idx = data_x.size() - 1; idx >= 1; --idx) data_x[idx] -= data_x[idx - 1];
+      data_x[0] = 0;
+      auto bitstream_x = hfmn.compress_udtype<uint32_t>(data_x);
+      encoded_x[batch_idx * NUM_THREADS + tid] = bitstream_x;
+
+      vector<int32_t> data_y(actual_y.begin() + start_idx, actual_y.begin() + start_idx + batch_thread_size);
+      for (int idx = data_y.size() - 1; idx >= 1; --idx) data_y[idx] -= data_y[idx - 1];
+      data_y[0] = 0;
+      auto bitstream_y = hfmn.compress_udtype<uint32_t>(data_y);
+      encoded_y[batch_idx * NUM_THREADS + tid] = bitstream_y;
+
+      vector<int32_t> data_z(actual_z.begin() + start_idx, actual_z.begin() + start_idx + batch_thread_size);
+      for (int idx = data_z.size() - 1; idx >= 1; --idx) data_z[idx] -= data_z[idx - 1];
+      data_z[0] = 0;
+      auto bitstream_z = hfmn.compress_udtype<uint32_t>(data_z);
+      encoded_z[batch_idx * NUM_THREADS + tid] = bitstream_z;
+
+      double actual_size = (3 * batch_thread_size * sizeof(int32_t));
+      double compressed_size = (bitstream_x.size() + bitstream_y.size() + bitstream_z.size()) * sizeof(uint32_t);
+      total_actual_size += actual_size;
+      total_compressed_size += compressed_size;
+    }
+  }
+
+  // assert
+  for (int batch_idx = 0; batch_idx < batches.size(); ++batch_idx) {
+    auto split_batch = split_batch_indices_into_threads(batches[batch_idx]);
+    for (int tid = 0; tid < split_batch.size(); ++tid) {
+      auto &[start_idx, batch_thread_size] = split_batch[tid];
+      vector<int32_t> data_x(actual_x.begin() + start_idx, actual_x.begin() + start_idx + batch_thread_size);
+      for (int idx = data_x.size() - 1; idx >= 1; --idx) data_x[idx] -= data_x[idx - 1];
+      data_x[0] = 0;
+      auto decompress_data_x = hfmn.decompress_udtype(encoded_x[batch_idx * NUM_THREADS + tid], data_x.size());
+      assert(data_x == decompress_data_x);
+
+      vector<int32_t> data_y(actual_y.begin() + start_idx, actual_y.begin() + start_idx + batch_thread_size);
+      for (int idx = data_y.size() - 1; idx >= 1; --idx) data_y[idx] -= data_y[idx - 1];
+      data_y[0] = 0;
+      auto decompress_data_y = hfmn.decompress_udtype(encoded_y[batch_idx * NUM_THREADS + tid], data_y.size());
+      assert(data_y == decompress_data_y);
+
+      vector<int32_t> data_z(actual_z.begin() + start_idx, actual_z.begin() + start_idx + batch_thread_size);
+      for (int idx = data_z.size() - 1; idx >= 1; --idx) data_z[idx] -= data_z[idx - 1];
+      data_z[0] = 0;
+      auto decompress_data_z = hfmn.decompress_udtype(encoded_z[batch_idx * NUM_THREADS + tid], data_z.size());
+      assert(data_z == decompress_data_z);
+    }
   }
 
   cout << "\nNet Compression Ratio: " << total_actual_size / total_compressed_size << endl;
+
+  // find the biggest bit-length of an ecoded value
+  unsigned int max_bit_length = 0;
+  for (auto &[key, val] : hfmn.dictionary) max_bit_length = max(max_bit_length, (unsigned int) val.size());
+  cout << "Max bit-length: " << max_bit_length << endl;
+  cout << "Number of nodes in Huffman tree: " << hfmn.num_nodes << endl;
 
   return 0;
 }
