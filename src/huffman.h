@@ -32,6 +32,7 @@ struct Huffman {
   unordered_map<T,unsigned int> frequencies;
   HuffmanNode *head;
   unordered_map<T,vector<bool>> dictionary;
+  unsigned int num_nodes = 0;
 
   // methods
   void calculate_frequencies(vector<T> &data) {
@@ -51,6 +52,7 @@ struct Huffman {
 
   HuffmanNode *merge(HuffmanNode *a, HuffmanNode *b) {
     HuffmanNode *parent = new HuffmanNode(a->freq + b->freq);
+    ++num_nodes;
     parent->value = -1;
     parent->left = b;
     parent->right = a;
@@ -61,6 +63,7 @@ struct Huffman {
     vector<HuffmanNode*> all_nodes;
     for (auto &[item, freq] : frequencies) {
       all_nodes.push_back(new HuffmanNode(item, freq));
+      ++num_nodes;
     }
     sort(all_nodes.begin(), all_nodes.end(), sort_cmp);
 
