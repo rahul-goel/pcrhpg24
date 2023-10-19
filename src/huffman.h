@@ -2,6 +2,9 @@
 #include <unordered_map>
 #include <algorithm>
 #include <numeric>
+#include <cassert>
+#include <iostream>
+#include <bitset>
 
 using namespace std;
 
@@ -184,6 +187,70 @@ struct Huffman {
     return vec;
   }
 
+  /*
+   * Compress using Markus' idea. If there is a value that is non-frequent. Then
+   * just store it separately.
+   * If first bit is 0 -> it means that there is a separate storage
+   * If first bit is 1 -> then do Huffman stuff.
+   */
+  template<typename udtype, typename delta_dtype>
+  pair<vector<udtype>,vector<delta_dtype>> compress_udtype_markus_idea(vector<T> &data) {
+    // final vector that stores the values in the specified data type
+    vector<udtype> vec;
+
+    // number of bits in the data type
+    const int udtype_num_bits = 8 * sizeof(udtype);
+
+    // element that reprsents the current value to be pushed into the final vector
+    udtype cur_value = 0;
+    // number of unoccupied bits (from the LSB side) in the cur_value
+    int unoccupied_bits = udtype_num_bits;
+
+    vector<delta_dtype> separate_data;
+    int64_t delta_dtype_max = (1ll << (sizeof(delta_dtype) * 8 - 1)) - 1, delta_dtype_min = -(1ll << (sizeof(delta_dtype) * 8 - 1));
+
+    for (T &item : data) {
+      if (dictionary.find(item) == dictionary.end()) {
+        // put a 0
+        if (unoccupied_bits == 0) {
+          vec.push_back(cur_value);
+          cur_value = 0;
+          unoccupied_bits = udtype_num_bits;
+        }
+        cur_value = (cur_value << 1) | (udtype) 0;
+        unoccupied_bits -= 1;
+
+        // assert that the value fits within delta_dtype
+        assert(delta_dtype_min <= (int64_t) item);
+        assert((int64_t) item <= delta_dtype_max);
+        separate_data.push_back(item);
+      } else {
+        // put a 1 at the beginning of the huffman code
+        auto huffman_code = dictionary[item];
+        reverse(huffman_code.begin(), huffman_code.end());
+        huffman_code.push_back(1);
+
+        while (huffman_code.size()) {
+          // if out of bits
+          if (unoccupied_bits == 0) {
+            vec.push_back(cur_value);
+            cur_value = 0;
+            unoccupied_bits = udtype_num_bits;
+          }
+
+          cur_value = (cur_value << 1) | (udtype) huffman_code.back();
+          unoccupied_bits -= 1;
+          huffman_code.pop_back();
+        }
+      }
+    }
+    // push in the final value
+    cur_value = cur_value << unoccupied_bits;
+    vec.push_back(cur_value);
+
+    return {vec, separate_data};
+  }
+
   template<typename udtype>
   vector<T> decompress_udtype(vector<udtype> &bitstream, unsigned int num_elements) {
     // final data vector
@@ -220,6 +287,161 @@ struct Huffman {
     return data;
   }
 
+  /*
+   * Compress using Markus' idea. If there is a value that is non-frequent. Then
+   * just store it separately.
+   * If first bit is 0 -> it means that there is a separate storage
+   * If first bit is 1 -> then do Huffman stuff.
+   */
+  template<typename udtype, typename delta_dtype>
+  vector<T> decompress_udtype_markus_idea(vector<udtype> &bitstream, vector<delta_dtype> &separate_data, unsigned int num_elements) {
+    // final data vector
+    vector<T> data;
+    // number of bits in the data type
+    const int udtype_num_bits = 8 * sizeof(udtype);
+
+    HuffmanNode *cur = head;
+
+    int sep_ptr = 0;
+    bool new_code = true;
+
+    for (udtype &word : bitstream) {
+      for (int b = udtype_num_bits - 1; b >= 0; --b) {
+        bool is_child = !cur->left and !cur->right;
+        if (is_child) {
+          new_code = true;
+          data.push_back(cur->value);
+          if (data.size() == num_elements) break;
+          cur = head;
+        }
+
+        bool bit = (word >> b) & (udtype) 1;
+        if (new_code and bit == 0) {
+          // separate data case
+          data.push_back(separate_data[sep_ptr++]);
+          new_code = true;
+          if (data.size() == num_elements) break;
+        } else if (new_code) {
+          // huffman decoding next bit onwards
+          new_code = false;
+        } else {
+          // huffman traversal
+          if (!bit) {
+            cur = cur->left;
+            new_code = false;
+          } else if (bit) {
+            cur = cur->right;
+            new_code = false;
+          }
+        }
+      }
+      if (data.size() == num_elements) break;
+    }
+
+    // last bit read finishes the last value
+    if (data.size() < num_elements) {
+      data.push_back(cur->value);
+    }
+
+    return data;
+  }
+
+  /*
+   * Compress using Markus' idea. If there is a value that is non-frequent. Then
+   * just store it separately.
+   * If first bit is 0 -> it means that there is a separate storage
+   * If first bit is 1 -> then do Huffman stuff.
+   */
+  template<typename udtype, typename delta_dtype>
+  vector<T> decompress_udtype_markus_idea_using_table(vector<pair<T,int>> &table, vector<udtype> &bitstream, vector<delta_dtype> &separate_data, unsigned int num_elements) {
+    // final data vector
+    vector<T> data;
+    // number of bits in the data type
+    const int udtype_num_bits = 8 * sizeof(udtype);
+
+    int table_size = table.size();
+    int max_cw_size = -1;
+    while (table_size) max_cw_size++, table_size >>= 1;
+
+    udtype window = 0;
+    udtype mask = ~((udtype) 0) << (udtype_num_bits - max_cw_size); // 1111 0000 0000 0000
+    int shift = udtype_num_bits - max_cw_size;
+    udtype single_mask = ((udtype) 1) << max_cw_size - 1;
+    int single_shift = udtype_num_bits - 1;
+
+    int read_bits = udtype_num_bits;
+    int bitstream_ptr = 0;
+    int sep_ptr = 0;
+    bool new_code = true;
+
+    while (data.size() < num_elements) {
+      int used_bits = 0;
+      if (new_code) {
+        if ((window & single_mask) >> single_shift) {
+          // hufmann
+        } else {
+          // separate data
+          data.push_back(separate_data[sep_ptr++]);
+          new_code = true;
+        }
+        used_bits = 1;
+      } else {
+        udtype idx = (window & mask) >> shift;
+        auto &[val, cw_size] = table[idx];
+        data.push_back(val);
+        new_code = true;
+        used_bits = cw_size;
+      }
+
+      // discard first "used_bits" and load next
+      read_bits += used_bits;
+      window <<= used_bits;
+    }
+
+    HuffmanNode *cur = head;
+
+
+    for (udtype &word : bitstream) {
+      for (int b = udtype_num_bits - 1; b >= 0; --b) {
+        bool is_child = !cur->left and !cur->right;
+        if (is_child) {
+          new_code = true;
+          data.push_back(cur->value);
+          if (data.size() == num_elements) break;
+          cur = head;
+        }
+
+        bool bit = (word >> b) & (udtype) 1;
+        if (new_code and bit == 0) {
+          // separate data case
+          data.push_back(separate_data[sep_ptr++]);
+          new_code = true;
+          if (data.size() == num_elements) break;
+        } else if (new_code) {
+          // huffman decoding next bit onwards
+          new_code = false;
+        } else {
+          // huffman traversal
+          if (!bit) {
+            cur = cur->left;
+            new_code = false;
+          } else if (bit) {
+            cur = cur->right;
+            new_code = false;
+          }
+        }
+      }
+      if (data.size() == num_elements) break;
+    }
+
+    // last bit read finishes the last value
+    if (data.size() < num_elements) {
+      data.push_back(cur->value);
+    }
+
+    return data;
+  }
+
   template<typename udtype>
   vector<bool> get_bools_from_bitstream(vector<udtype> &bitstream) {
     vector<bool> data;
@@ -231,6 +453,48 @@ struct Huffman {
       }
     }
     return data;
+  }
+
+  int get_max_codeword_size() {
+    int ret = 0;
+    for (auto &[val, cw] : dictionary) {
+      ret = max(ret, (int) cw.size());
+    }
+    return ret;
+  }
+
+  vector<pair<T,int>> get_gpu_huffman_table() {
+    int max_cw_size = get_max_codeword_size();
+
+    vector<pair<T,int>> table(1 << max_cw_size, {-1, -1});
+    for (auto [val, cw] : dictionary) {
+      int num_bits = cw.size();
+      int rem_bits = max_cw_size - num_bits;
+      int cw_as_number = 0;
+      while (cw.size()) {
+        cw_as_number <<= 1;
+        cw_as_number = cw_as_number | cw.back();
+        cw.pop_back();
+      }
+      cw_as_number = cw_as_number << rem_bits;
+      table[cw_as_number] = {val, num_bits};
+    }
+
+    for (int i = 1; i < table.size(); ++i) {
+      if (table[i].second == -1) {
+        table[i] = table[i - 1];
+      }
+    }
+
+    return table;
+  }
+
+  void print_gpu_huffman_table() {
+    auto table = get_gpu_huffman_table();
+
+    for (int i = 0; i < table.size(); ++i) {
+      cout << bitset<16>(i) << ": " << table[i].first << " " << table[i].second << endl;
+    }
   }
 };
 

@@ -5,13 +5,16 @@
 #include <glm/gtx/transform.hpp>
 #include <iostream>
 #include <limits>
+#include <cassert>
 #include <thread>
 #include <bitset>
 #include <map>
 #include <set>
+#include <unordered_set>
 #include <queue>
 #include <chrono>
 #include "morton.h"
+#include "mymorton.h"
 #include "huffman.h"
 
 #define TARGET_START_X    0
@@ -20,11 +23,13 @@
 #define TARGET_START_RGBA TARGET_START_Z + 4
 #define TARGET_SZ         4 * 4
 
-#define NUM_THREADS 128
+#define NUM_THREADS 1
 
 string LASFILE = "/home/rg/lidar_data/morro_bay.las";
 // string LASFILE = "/home/rg/lidar_data/tree.las";
-const int64_t BATCH_SIZE = NUM_THREADS * 1024;
+// string LASFILE = "/home/rg/lidar_data/points.las";
+// const int64_t BATCH_SIZE = NUM_THREADS * 200;
+const int64_t BATCH_SIZE = 1e7;
 
 using namespace std;
 using glm::dvec3;
@@ -126,27 +131,33 @@ struct LasLoader{
 }; 
 
 template<typename T>
+vector<T> get_delta_values(vector<T> &x) {
+  assert(x.size());
+
+  vector<T> delta_values;
+  T prev_val;
+
+  prev_val = x[0];
+  for (T &val : x) {
+    delta_values.push_back(val - prev_val);
+    prev_val = val;
+  }
+
+  return delta_values;
+}
+
+template<typename T>
 vector<T> get_all_delta_values(vector<T> &x, vector<T> &y, vector<T> &z) {
   assert(x.size()); assert(y.size()); assert(z.size());
 
   vector<T> all_delta_values;
-  int prev_val;
+  auto delta_x = get_delta_values<T>(x);
+  auto delta_y = get_delta_values<T>(y);
+  auto delta_z = get_delta_values<T>(z);
 
-  prev_val = x[0];
-  for (int &val : x) {
-    all_delta_values.push_back(val - prev_val);
-    prev_val = val;
-  }
-  prev_val = y[0];
-  for (int &val : y) {
-    all_delta_values.push_back(val - prev_val);
-    prev_val = val;
-  }
-  prev_val = z[0];
-  for (int &val : z) {
-    all_delta_values.push_back(val - prev_val);
-    prev_val = val;
-  }
+  all_delta_values.insert(all_delta_values.end(), delta_x.begin(), delta_x.end());
+  all_delta_values.insert(all_delta_values.end(), delta_y.begin(), delta_y.end());
+  all_delta_values.insert(all_delta_values.end(), delta_z.begin(), delta_z.end());
 
   return all_delta_values;
 }
@@ -169,7 +180,10 @@ vector<unsigned int> get_morton_order(vector<int32_t> &actual_x, vector<int32_t>
 
   vector<unsigned int> order(num_points);
   iota(order.begin(), order.end(), 0);
-  stable_sort(order.begin(), order.end(), [&point_to_morton] (const int64_t &a, const int64_t &b) {
+  // stable_sort(order.begin(), order.end(), [&point_to_morton] (const int64_t &a, const int64_t &b) {
+  //   return point_to_morton[a] < point_to_morton[b];
+  // });
+  stable_sort(order.begin(), order.end(), [&point_to_morton] (const unsigned int &a, const unsigned int &b) {
     return point_to_morton[a] < point_to_morton[b];
   });
 
@@ -195,6 +209,388 @@ vector<pair<int,int>> split_batch_indices_into_threads(pair<int,int> batch) {
   return threads;
 }
 
+void old_frequency_calculation(vector<int32_t> &actual_x, vector<int32_t> &actual_y, vector<int32_t> &actual_z) {
+  cout << endl << "Old Frequency Calculation Method: " << endl;
+
+  auto all_delta_values = get_all_delta_values<int32_t>(actual_x, actual_y, actual_z);
+  Huffman<int32_t> hfmn;
+  hfmn.calculate_frequencies(all_delta_values);
+  auto sorted_frequencies = hfmn.get_sorted_frequencies();
+
+  int64_t sum = 0;
+  for (int i = 0; i < 100; ++i) {
+    sum += sorted_frequencies[i].second;
+  }
+  
+  int64_t num_points = actual_x.size();
+  cout << "Coverage of all values: " << (double) sum / (double) (num_points * 3) << endl;
+
+  hfmn.generate_huffman_tree();
+  hfmn.create_dictionary();
+
+  auto encoded = hfmn.compress_udtype<uint32_t>(all_delta_values);
+  auto decoded = hfmn.decompress_udtype<uint32_t>(encoded, all_delta_values.size());
+
+  assert(decoded == all_delta_values);
+  cout << "Is data equal after decompression?: " << (bool) (decoded == all_delta_values) << endl;
+
+  // how many points have all coordinates lying in their respective top-100 values?
+  set<int32_t> good_values;
+  for (int i = 0; i < 100; ++i) {
+    good_values.insert(sorted_frequencies[i].first);
+  }
+
+  auto delta_x = get_delta_values<int32_t>(actual_x);
+  auto delta_y = get_delta_values<int32_t>(actual_y);
+  auto delta_z = get_delta_values<int32_t>(actual_z);
+
+  int64_t good_points = 0;
+  for (int i = 0; i < num_points; ++i) {
+    bool good = true;
+    if (good_values.find(delta_x[i]) == good_values.end()) good = false;
+    if (good_values.find(delta_y[i]) == good_values.end()) good = false;
+    if (good_values.find(delta_z[i]) == good_values.end()) good = false;
+    good_points += good;
+  }
+  cout << "Points with all coordinates falling in top-100: " << (double) good_points / (double) num_points << endl;
+
+  // create chains in the old frequency method
+  vector<pair<int,int>> batches;
+  batches.push_back({0, 1});
+  for (int i = 1; i < num_points; ++i) {
+    bool good = true;
+    if (good_values.find(delta_x[i]) == good_values.end()) good = false;
+    if (good_values.find(delta_y[i]) == good_values.end()) good = false;
+    if (good_values.find(delta_z[i]) == good_values.end()) good = false;
+    if (good)
+      batches.back().second += 1;
+    else
+      batches.push_back({i, 1});
+  }
+  sort(batches.begin(), batches.end(), [] (const pair<int,int> &a, const pair<int,int> &b) {
+    return a.second > b.second;
+  });
+
+  int64_t batches_sum = 0;
+  for (auto &batch : batches) {
+    batches_sum += batch.second;
+    cout << batch.first << " " << batch.second << " " << (double) batches_sum / (double) num_points << endl;
+  }
+}
+
+void simulation(vector<int32_t> &actual_x, vector<int32_t> &actual_y, vector<int32_t> &actual_z) {
+  cout << "Simulation" << endl;
+  int num_points = actual_x.size();
+
+  // calculate delta values separately
+  auto delta_x = get_delta_values<int32_t>(actual_x);
+  auto delta_y = get_delta_values<int32_t>(actual_y);
+  auto delta_z = get_delta_values<int32_t>(actual_z);
+
+  // calculate common huffman and the best frequencies
+  Huffman<int32_t> hfmn;
+  auto all_delta_values = get_all_delta_values<int32_t>(actual_x, actual_y, actual_z);
+  hfmn.calculate_frequencies(all_delta_values);
+  all_delta_values.clear();
+  auto sorted_frequencies = hfmn.get_sorted_frequencies();
+
+  // calculate good delta values
+  unordered_set<int32_t> good_deltas;
+  for (int i = 0; i < 128; ++i) good_deltas.insert(sorted_frequencies[i].first);
+
+  // update the huffman
+  {
+    vector<int32_t> subset_delta_values;
+    for (int i = 0; i < 128; ++i) {
+      auto &[value, freq] = sorted_frequencies[i];
+      for (int cnt = 0; cnt < freq; ++cnt) subset_delta_values.push_back(value);
+    }
+    hfmn.calculate_frequencies(subset_delta_values);
+    hfmn.generate_huffman_tree();
+    hfmn.create_dictionary();
+    int max_codeword_size = 0;
+    for (auto &[val, cw] : hfmn.dictionary) max_codeword_size = max(max_codeword_size, (int) cw.size());
+  }
+
+  // get batch configuration
+  vector<pair<int,int>> batches;
+  int general_batch_size = 20000;
+  for (int start_idx = 0; start_idx < num_points; start_idx += general_batch_size) {
+    batches.push_back({start_idx, min(general_batch_size, num_points - start_idx)});
+  }
+
+  // divide into batches
+  vector<pair<vector<uint8_t>,vector<int32_t>>> buffers;
+  vector<array<int32_t,3>> start_values;
+
+  for (auto &[start_idx, batch_size] : batches) {
+    vector<int32_t> data(batch_size * 3);
+
+    // first values
+    start_values.push_back({actual_x[start_idx], actual_y[start_idx], actual_z[start_idx]});
+    for (int i = 0; i < 3; ++i) data[i] = 0;
+
+    // interleave the delta values
+    for (int i = 1; i < batch_size; ++i) {
+      data[i * 3 + 0] = delta_x[start_idx + i];
+      data[i * 3 + 1] = delta_y[start_idx + i];
+      data[i * 3 + 2] = delta_z[start_idx + i];
+    }
+
+    // // encode the data and store it
+    auto encoded_data = hfmn.compress_udtype_markus_idea<uint8_t, int32_t>(data);
+    buffers.push_back(encoded_data);
+
+    // decode the data and compare it
+    auto recovered_data = hfmn.decompress_udtype_markus_idea<uint8_t, int32_t>(encoded_data.first, encoded_data.second, data.size());
+
+    assert(recovered_data == data);
+  }
+
+  int64_t total_compressed_size = 0;
+  int64_t total_size = actual_x.size() * 3 * sizeof(actual_x[0]);
+  for (auto &buffer : buffers) {
+    total_compressed_size += buffer.first.size() * sizeof(buffer.first[0]);
+    total_compressed_size += buffer.second.size() * sizeof(buffer.second[0]);
+  }
+
+  for (int i = 0; i < batches.size(); ++i) {
+    cout << "Batch Idx: " << i << endl;
+    cout << "Data Size: " << (batches[i].second * 3) * sizeof(actual_x[0]) << " Bytes" << endl;
+    cout << "Bitstream Size: " << (buffers[i].first.size()) * sizeof(buffers[i].first[0]) << " Bytes" << endl;
+    cout << "Separate Size: " << (buffers[i].second.size()) * sizeof(buffers[i].second[0]) << " Bytes" << endl;
+    double num = (batches[i].second * 3) * sizeof(actual_x[0]);
+    double denom = (buffers[i].first.size()) * sizeof(buffers[i].first[0]) + (buffers[i].second.size()) * sizeof(buffers[i].second[0]);
+    cout << "Local Compression Ratio: " << num / denom << endl;
+    cout << endl;
+  }
+
+  cout << "Total Compression Ratio: " << (double) total_size / (double) total_compressed_size << endl;
+}
+
+void new_frequency_calculation(vector<int32_t> &actual_x, vector<int32_t> &actual_y, vector<int32_t> &actual_z) {
+  cout << endl << "New Frequency Calculation Method: " << endl;
+
+  // calculate delta values separately
+  auto delta_x = get_delta_values<int32_t>(actual_x);
+  auto delta_y = get_delta_values<int32_t>(actual_y);
+  auto delta_z = get_delta_values<int32_t>(actual_z);
+
+  // assign separate huffman
+  Huffman<int32_t> hfmn_x, hfmn_y, hfmn_z;
+  hfmn_x.calculate_frequencies(delta_x);
+  hfmn_y.calculate_frequencies(delta_y);
+  hfmn_z.calculate_frequencies(delta_z);
+  auto sorted_frequencies_x = hfmn_x.get_sorted_frequencies();
+  auto sorted_frequencies_y = hfmn_y.get_sorted_frequencies();
+  auto sorted_frequencies_z = hfmn_z.get_sorted_frequencies();
+
+  // how many values are covered by first 100 frequencies
+  int64_t sum_x = 0, sum_y = 0, sum_z = 0;
+  for (int i = 0; i < 100; ++i) {
+    sum_x += sorted_frequencies_x[i].second;
+    sum_y += sorted_frequencies_y[i].second;
+    sum_z += sorted_frequencies_z[i].second;
+  }
+
+  int64_t num_points = actual_x.size();
+  cout << "Coverage of X: " << (double) sum_x / (double) num_points << endl;
+  cout << "Coverage of Y: " << (double) sum_y / (double) num_points << endl;
+  cout << "Coverage of Z: " << (double) sum_z / (double) num_points << endl;
+
+  hfmn_x.generate_huffman_tree();
+  hfmn_x.create_dictionary();
+  hfmn_y.generate_huffman_tree();
+  hfmn_y.create_dictionary();
+  hfmn_z.generate_huffman_tree();
+  hfmn_z.create_dictionary();
+
+  auto encoded_x = hfmn_x.compress_udtype<uint32_t>(delta_x);
+  auto decoded_x = hfmn_x.decompress_udtype<uint32_t>(encoded_x, delta_x.size());
+  cout << "Is data (x) equal after decompression?: " << (bool) (decoded_x == delta_x) << endl;
+
+  auto encoded_y = hfmn_y.compress_udtype<uint32_t>(delta_y);
+  auto decoded_y = hfmn_y.decompress_udtype<uint32_t>(encoded_y, delta_y.size());
+  cout << "Is data (y) equal after decompression?: " << (bool) (decoded_y == delta_y) << endl;
+
+  auto encoded_z = hfmn_z.compress_udtype<uint32_t>(delta_z);
+  auto decoded_z = hfmn_z.decompress_udtype<uint32_t>(encoded_z, delta_z.size());
+  cout << "Is data (z) equal after decompression?: " << (bool) (decoded_z == delta_z) << endl;
+
+  // how many points have all coordinates lying in their respective top-100 values?
+  set<int32_t> good_values_x, good_values_y, good_values_z;
+  for (int i = 0; i < 100; ++i) {
+    good_values_x.insert(sorted_frequencies_x[i].first);
+    good_values_y.insert(sorted_frequencies_y[i].first);
+    good_values_z.insert(sorted_frequencies_z[i].first);
+  }
+
+  int64_t good_points = 0;
+  for (int i = 0; i < num_points; ++i) {
+    bool good = true;
+    if (good_values_x.find(delta_x[i]) == good_values_x.end()) good = false;
+    if (good_values_y.find(delta_y[i]) == good_values_y.end()) good = false;
+    if (good_values_z.find(delta_z[i]) == good_values_z.end()) good = false;
+    good_points += good;
+  }
+  cout << "Points with all coordinates falling in top-100: " << (double) good_points / (double) num_points << endl;
+
+  // create chains in the new frequency method
+  vector<pair<int,int>> batches;
+  batches.push_back({0, 1});
+  for (int i = 1; i < num_points; ++i) {
+    bool good = true;
+    if (good_values_x.find(delta_x[i]) == good_values_x.end()) good = false;
+    if (good_values_y.find(delta_y[i]) == good_values_y.end()) good = false;
+    if (good_values_z.find(delta_z[i]) == good_values_z.end()) good = false;
+    if (good)
+      batches.back().second += 1;
+    else
+      batches.push_back({i, 1});
+  }
+  sort(batches.begin(), batches.end(), [] (const pair<int,int> &a, const pair<int,int> &b) {
+    return a.second > b.second;
+  });
+
+  int64_t batches_sum = 0;
+  for (auto &batch : batches) {
+    batches_sum += batch.second;
+    cout << batch.first << " " << batch.second << " " << (double) batches_sum / (double) num_points << endl;
+  }
+}
+
+void create_chains(Huffman<int32_t> &hfmn, vector<int32_t> &actual_x, vector<int32_t> &actual_y, vector<int32_t> &actual_z) {
+  auto sorted_frequencies = hfmn.get_sorted_frequencies();
+  set<int32_t> good_deltas;
+  for (int i = 0; i < 128; ++i) good_deltas.insert(sorted_frequencies[i].first);
+
+  int num_points = actual_x.size();
+
+  vector<pair<int,int>> batches; // [start_idx, batch_size]
+  vector<int> start_values;
+
+  // first point
+  batches.push_back({0, 1});
+  start_values.insert(start_values.end(), { actual_x[0], actual_y[0], actual_z[0] });
+  int32_t prev_values[3] = {actual_x[0], actual_y[0], actual_z[0]};
+
+  for (int i = 1; i < num_points; ++i) {
+    int32_t delta_values[3] = {actual_x[i] - prev_values[0], actual_y[i] - prev_values[1], actual_z[i] - prev_values[2]};
+    bool start_new_batch = false;
+    for (int32_t &value : delta_values) start_new_batch = start_new_batch or (good_deltas.find(value) == good_deltas.end());
+    if (start_new_batch) {
+      batches.push_back({i, 1});
+      start_values.insert(start_values.end(), { actual_x[i], actual_y[i], actual_z[i] });
+    } else {
+      batches.back().second += 1;
+    }
+    prev_values[0] = actual_x[i], prev_values[1] = actual_y[i], prev_values[2] = actual_z[i];
+  }
+
+  sort(batches.begin(), batches.end(), [] (const pair<int,int> &a, const pair<int,int> &b) {
+    return a.second > b.second;
+  });
+
+  int till_now = 0;
+  for (auto &[start_idx, batch_size] : batches) {
+    till_now += batch_size;
+    cout << start_idx << " " << batch_size << " " << (double) till_now / (double) num_points << endl;
+  }
+}
+
+void throwaway_outliers(Huffman<int32_t> &hfmn, vector<int32_t> &actual_x, vector<int32_t> &actual_y, vector<int32_t> &actual_z) {
+  auto sorted_frequencies = hfmn.get_sorted_frequencies();
+  set<int32_t> good_deltas;
+  for (int i = 0; i < 100; ++i) good_deltas.insert(sorted_frequencies[i].first);
+
+  int num_points = actual_x.size();
+
+  vector<pair<int,int>> batches; // [start_idx, batch_size]
+  vector<int> start_values;
+
+  // first point
+  batches.push_back({0, 1});
+  start_values.insert(start_values.end(), { actual_x[0], actual_y[0], actual_z[0] });
+  int32_t prev_values[3] = {actual_x[0], actual_y[0], actual_z[0]};
+
+  for (int i = 1; i < num_points; ++i) {
+    int32_t delta_values[3] = {actual_x[i] - prev_values[0], actual_y[i] - prev_values[1], actual_z[i] - prev_values[2]};
+    bool throwaway = false;
+    for (int32_t &value : delta_values) throwaway |= (good_deltas.find(value) == good_deltas.end());
+    if (not throwaway) {
+      batches.back().second += 1;
+      prev_values[0] = actual_x[i], prev_values[1] = actual_y[i], prev_values[2] = actual_z[i];
+    }
+  }
+
+  sort(batches.begin(), batches.end(), [] (const pair<int,int> &a, const pair<int,int> &b) {
+    return a.second > b.second;
+  });
+
+  for (auto &[start_idx, batch_size] : batches) {
+    cout << start_idx << " " << batch_size << endl;
+  }
+}
+
+void multichain_logic_hashing(Huffman<int32_t> &hfmn, vector<int32_t> &actual_x, vector<int32_t> &actual_y, vector<int32_t> &actual_z) {
+  auto sorted_frequencies = hfmn.get_sorted_frequencies();
+  set<int32_t> good_deltas;
+  for (int i = 0; i < 100; ++i) good_deltas.insert(sorted_frequencies[i].first);
+
+  int num_points = actual_x.size();
+  vector<vector<int>> batches;
+
+  batches.push_back({0});
+
+  unordered_map<int32_t, int> which_batch;
+
+  for (int i = 1; i < num_points; ++i) {
+    bool found = false;
+    for (auto &batch : batches) {
+    }
+  }
+}
+
+void multichain_logic(Huffman<int32_t> &hfmn, vector<int32_t> &actual_x, vector<int32_t> &actual_y, vector<int32_t> &actual_z) {
+  auto sorted_frequencies = hfmn.get_sorted_frequencies();
+  set<int32_t> good_deltas;
+  for (int i = 0; i < 100; ++i) good_deltas.insert(sorted_frequencies[i].first);
+
+  int num_points = actual_x.size();
+  vector<vector<int>> batches;
+
+  batches.push_back({0});
+  for (int i = 1; i < num_points; ++i) {
+    bool found = false;
+    for (auto &batch : batches) {
+      int prev_idx = batch.back();
+      int32_t delta_values[3] = {actual_x[i] - actual_x[prev_idx], actual_y[i] - actual_y[prev_idx], actual_z[i] - actual_z[prev_idx]};
+
+      bool good_delta = true;
+      for (int32_t &value : delta_values) good_delta = good_delta and (good_deltas.find(value) != good_deltas.end());
+
+      if (good_delta) {
+        found = true;
+        batch.push_back(i);
+        break;
+      }
+    }
+    if (not found) {
+      batches.push_back({i});
+    }
+    cout << i << " " << batches.size() << endl;
+  }
+
+  vector<int64_t> sizes;
+  for (auto &batch : batches) {
+    cout << batch.size() << endl;
+    sizes.push_back(batch.size());
+  }
+
+  for (int i = 1; i < sizes.size(); ++i) sizes[i] += sizes[i - 1];
+  for (int i = 1; i < sizes.size(); ++i) cout << (double) sizes[i] / (double) sizes.back() << endl;
+}
+
 int main() {
   cout << "Starting Program." << endl;
 
@@ -216,9 +612,18 @@ int main() {
     actual_z[i] = las_points.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_Z);
   }
 
+  // trying out faiss
+  vector<float> values;
+  for (int i = 0; i < num_points; ++i) {
+    values.push_back(float(actual_x[i]) * las_points.c_scale.x + las_points.c_offset.x);
+    values.push_back(float(actual_y[i]) * las_points.c_scale.y + las_points.c_offset.y);
+    values.push_back(float(actual_z[i]) * las_points.c_scale.z + las_points.c_offset.z);
+  }
+
   // morton_order
   {
     auto morton_order = get_morton_order(actual_x, actual_y, actual_z);
+    // auto morton_order = mymorton::get_morton_order(actual_x, actual_y, actual_z);
     vector<int32_t> tmp;
     tmp = actual_x;
     for (int i = 0; i < morton_order.size(); ++i) actual_x[i] = tmp[morton_order[i]];
@@ -228,12 +633,22 @@ int main() {
     for (int i = 0; i < morton_order.size(); ++i) actual_z[i] = tmp[morton_order[i]];
   }
 
+  // old_frequency_calculation(actual_x, actual_y, actual_z);
+  // new_frequency_calculation(actual_x, actual_y, actual_z);
+  simulation(actual_x, actual_y, actual_z);
+  return 0;
+
   // create huffman
   auto all_delta = get_all_delta_values<int32_t>(actual_x, actual_y, actual_z);
   Huffman<int32_t> hfmn;
   hfmn.calculate_frequencies(all_delta);
   hfmn.generate_huffman_tree();
   hfmn.create_dictionary();
+
+  create_chains(hfmn, actual_x, actual_y, actual_z);
+  // throwaway_outliers(hfmn, actual_x, actual_y, actual_z);
+  // multichain_logic(hfmn, actual_x, actual_y, actual_z);
+  return 0;
 
   // divide into batches
   vector<pair<int,int>> batches; // [start_idx, size]
