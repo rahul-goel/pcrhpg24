@@ -13,12 +13,19 @@ struct XYZBatch{
 
 	int padding1;
 	int padding2;
-	int padding3;
-	int padding4;
-	int padding5;
-	int padding6;
-	int padding7;
-	int padding8;
+
+  float scale_x;
+  float scale_y;
+  float scale_z;
+  float offset_x;
+  float offset_y;
+  float offset_z;
+	// int padding3;
+	// int padding4;
+	// int padding5;
+	// int padding6;
+	// int padding7;
+	// int padding8;
 };
 
 struct Mat {

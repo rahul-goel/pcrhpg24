@@ -14,6 +14,8 @@
 #include "compute_loop_las/compute_loop_las.h"
 #include "compute_loop_las2/compute_loop_las2.h"
 #include "compute_loop_las_cuda/compute_loop_las_cuda.h"
+#include "experimental/experimental.h"
+#include "basic_cuda/basic_cuda.h"
 #include "compute_loop_las_hqs/compute_loop_las_hqs.h"
 // #include "compute_loop_las_hqs_vr/compute_loop_las_hqs_vr.h"
 // #include "compute_loop_nodes/compute_loop_nodes.h"
@@ -268,7 +270,9 @@ int main(){
 		//setting.path_las = "D:/dev/pointclouds/tuwien_baugeschichte/candi Banyunibo/morton/10.las";
 		// setting.path_las = "D:/dev/pointclouds/tuwien_baugeschichte/candi Banyunibo/candi_banyunibo.las";
 		// setting.path_las = "F:/temp/wgtest/banyunibo_laserscans/merged.las";
-		setting.path_las = "/home/rg/lidar_data/tree.las";
+		// setting.path_las = "/home/rg/lidar_data/tree.las";
+		setting.path_las = "/home/rg/lidar_data/morro_bay.las";
+		// setting.path_las = "/home/rg/lidar_data/points.las";
 
 		// outside
 		setting.yaw = 4.39;
@@ -329,19 +333,31 @@ int main(){
 	// auto potreedata = PotreeData::create(setting.path_potree);
 	auto las_encode_444 = ComputeLasData::create(setting.path_las);
 	auto las_standard = LasStandardData::create(setting.path_las);
+  auto las_basic = ComputeLasDataBasic::create(setting.path_las);
 
+  /*
 	{ // 4-4-4 byte format
 		auto computeLoopLas       = new ComputeLoopLas(renderer.get(), las_encode_444);
 		auto computeLoopLas2      = new ComputeLoopLas2(renderer.get(), las_encode_444);
 		auto computeLoopLasHqs    = new ComputeLoopLasHqs(renderer.get(), las_encode_444);
 		// auto computeLoopLasHqsVR  = new ComputeLoopLasHqsVR(renderer.get(), las_encode_444);
 		auto computeCUDALas       = new ComputeLoopLasCUDA(renderer.get(), las_encode_444);
+    auto experimental         = new Experimental(renderer.get(), las_encode_444);
 		Runtime::addMethod((Method*)computeLoopLas);
 		Runtime::addMethod((Method*)computeLoopLas2);
 		Runtime::addMethod((Method*)computeLoopLasHqs);
 		// Runtime::addMethod((Method*)computeLoopLasHqsVR);
 		Runtime::addMethod((Method*)computeCUDALas);
+		Runtime::addMethod((Method*)experimental);
 	}
+  */
+
+  { // Rahul's methods
+    auto basic1 = new BasicCuda(renderer.get(), las_basic);
+    auto basic2 = new BasicCuda(renderer.get(), las_basic);
+		Runtime::addMethod((Method*) basic1);
+		Runtime::addMethod((Method*) basic2);
+  }
 
 	{ // POTREE FORMAT
 		// auto computeLoopNodes = new ComputeLoopNodes(renderer.get(), potreedata);
@@ -352,6 +368,7 @@ int main(){
 		// Runtime::addMethod((Method*)computeLoopNodesHqsVr);
 	}
 
+  /*
 	{ // OLD METHODS / 16 byte format
 		//auto computeEarlyZ = new ComputeEarlyZ(renderer.get(), las_standard);
 		//auto computeEarlyZReduce = new ComputeEarlyZReduce(renderer.get(), las_standard);
@@ -364,6 +381,7 @@ int main(){
 		Runtime::addMethod((Method*)compute2021Hqs);
 		Runtime::addMethod((Method*)compute2021GL);
 	}
+  */
 
 	// { // PARAMETRIC
 	// auto computeParametric = new ComputeParametric(renderer.get());
