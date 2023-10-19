@@ -121,6 +121,18 @@ struct Huffman {
     create_dictionary(cur, cur_code, dictionary);
   }
 
+  template<typename udtype>
+  unordered_map<T, pair<udtype,int>> get_collapsed_dictionary() {
+    int max_cw_size = get_max_codeword_size();
+    unordered_map<T, pair<udtype,int>> collapsed_dictionary;
+    for (auto &[symbol, cw_vector] : dictionary) {
+      udtype cw = 0;
+      for (bool bit : cw_vector) cw = (cw << 1) | bit;
+      collapsed_dictionary[symbol] = {cw, cw_vector.size()};
+    }
+    return collapsed_dictionary;
+  }
+
   vector<bool> compress(vector<T> &data) {
     vector<bool> bitstream;
     for (T &item : data) {
@@ -148,6 +160,43 @@ struct Huffman {
     }
     data.push_back(cur->value);
     return data;
+  }
+
+  template<typename udtype, typename Iterator>
+  vector<udtype> compress_udtype_subarray_fast(Iterator begin, Iterator end, unordered_map<T, pair<udtype,int>> &collapsed_dictionary) {
+    vector<udtype> vec;                                         // final vector that stores the values in the specified data type
+    const int udtype_num_bits = 8 * sizeof(udtype);             // number of bits in the data type
+    udtype chunk = 0;                                           // element that reprsents the current value to be pushed into the final vector
+    int chunk_rem_bits = udtype_num_bits;                       // number of unoccupied bits (from the LSB side) in the cur_value
+
+    udtype mask;
+    for (Iterator it = begin; it != end; ++it) {
+      pair<udtype,int> p = collapsed_dictionary[*it];
+      udtype cw = p.first;
+      int cw_tot_bits = p.second;
+      int cw_rem_bits = cw_tot_bits;
+
+      while (cw_rem_bits) {
+        int min_bits = min(chunk_rem_bits, cw_rem_bits);
+        mask = (((udtype) 1 << cw_rem_bits) - 1) - (((udtype) 1 << (cw_rem_bits - min_bits)) - 1);
+        chunk = chunk | (((mask & cw) >> (cw_rem_bits - min_bits)) << (chunk_rem_bits - min_bits));
+
+        cw_rem_bits -= min_bits;
+        chunk_rem_bits -= min_bits;
+
+        if (chunk_rem_bits == 0) {
+          vec.push_back(chunk);
+          chunk = 0;
+          chunk_rem_bits = udtype_num_bits;
+        }
+      }
+    }
+
+    if (chunk_rem_bits < udtype_num_bits) {
+      vec.push_back(chunk);
+    }
+
+    return vec;
   }
 
   template<typename udtype>

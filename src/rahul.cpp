@@ -337,7 +337,7 @@ void simulation(vector<int32_t> &actual_x, vector<int32_t> &actual_y, vector<int
       data[i * 3 + 2] = delta_z[start_idx + i];
     }
 
-    // // encode the data and store it
+    // encode the data and store it
     auto encoded_data = hfmn.compress_udtype_markus_idea<uint8_t, int32_t>(data);
     buffers.push_back(encoded_data);
 
@@ -595,7 +595,7 @@ int main() {
   cout << "Starting Program." << endl;
 
   // load the first 10 million points.
-  auto las_points = LasLoader::loadSync(LASFILE, 0, 1e7);
+  auto las_points = LasLoader::loadSync(LASFILE, 0, 1e5);
 
   cout << "Scale:" << endl;
   cout << las_points.c_scale.x << " " << las_points.c_scale.y << " "  << las_points.c_scale.z << endl;
@@ -635,8 +635,8 @@ int main() {
 
   // old_frequency_calculation(actual_x, actual_y, actual_z);
   // new_frequency_calculation(actual_x, actual_y, actual_z);
-  simulation(actual_x, actual_y, actual_z);
-  return 0;
+  // simulation(actual_x, actual_y, actual_z);
+  // return 0;
 
   // create huffman
   auto all_delta = get_all_delta_values<int32_t>(actual_x, actual_y, actual_z);
@@ -644,11 +644,16 @@ int main() {
   hfmn.calculate_frequencies(all_delta);
   hfmn.generate_huffman_tree();
   hfmn.create_dictionary();
+  auto collapsed_dict = hfmn.get_collapsed_dictionary<uint32_t>();
+  auto encoded = hfmn.compress_udtype_subarray_fast<uint32_t, vector<int32_t>::iterator>(all_delta.begin(), all_delta.end(), collapsed_dict);
+  auto decoded = hfmn.decompress_udtype<uint32_t>(encoded, all_delta.size());
+  assert (decoded == all_delta);
+  return 0;
 
-  create_chains(hfmn, actual_x, actual_y, actual_z);
+  // create_chains(hfmn, actual_x, actual_y, actual_z);
   // throwaway_outliers(hfmn, actual_x, actual_y, actual_z);
   // multichain_logic(hfmn, actual_x, actual_y, actual_z);
-  return 0;
+  // return 0;
 
   // divide into batches
   vector<pair<int,int>> batches; // [start_idx, size]
