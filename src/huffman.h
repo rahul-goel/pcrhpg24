@@ -169,6 +169,8 @@ struct Huffman {
     udtype chunk = 0;                                           // element that reprsents the current value to be pushed into the final vector
     int chunk_rem_bits = udtype_num_bits;                       // number of unoccupied bits (from the LSB side) in the cur_value
 
+    assert(get_max_codeword_size() <= udtype_num_bits);         // else function will not work
+
     udtype mask;
     for (Iterator it = begin; it != end; ++it) {
       pair<udtype,int> p = collapsed_dictionary[*it];
@@ -197,6 +199,45 @@ struct Huffman {
     }
 
     return vec;
+  }
+
+  // this function works only when max_cw_size is less than or equal to number of bits in udtype
+  // so use udtype=uint32_t or udtype=uint64_t
+  template<typename udtype, typename Iterator>
+  void decompress_udtype_subarray_fast(Iterator begin, Iterator end, vector<udtype> &bitstream, vector<pair<T,int>> &decoder_table) {
+    const int udtype_num_bits = 8 * sizeof(udtype);             // number of bits in the data type
+    int max_cw_size = get_max_codeword_size();                  // max codewords size
+    assert(max_cw_size <= udtype_num_bits);                     // else function will not work
+
+    int cur_ptr = 0;
+    int cur_bits = udtype_num_bits;
+    udtype window, key;
+    udtype mask = ((1 << max_cw_size) - 1) << (udtype_num_bits - max_cw_size);
+
+    bitstream.push_back(0);                                     // add dummy value for (cur_ptr + 1)
+    Iterator it = begin;
+    while (it != end) {
+      udtype L = cur_bits == udtype_num_bits ? bitstream[cur_ptr] : (bitstream[cur_ptr] << (udtype_num_bits - cur_bits));
+      udtype R = cur_bits == udtype_num_bits ? 0 : (bitstream[cur_ptr + 1] >> cur_bits);
+      window = L | R;
+      key = (window & mask) >> (udtype_num_bits - max_cw_size);
+      pair<T, int> p = decoder_table[key];
+      T &symbol = p.first;
+      int &cw_size = p.second;
+      *it = symbol;
+
+      int min_bits = min(cw_size, cur_bits);
+      cur_bits -= min_bits;
+      cw_size -= min_bits;
+      if (cw_size < cur_bits) {
+        cur_bits -= cw_size;
+      } else {
+        cur_ptr += 1;
+        cur_bits = cur_bits + udtype_num_bits - cw_size;
+      }
+      ++it;
+    }
+    bitstream.pop_back();                                       // remove dummy value for (cur_ptr + 1)
   }
 
   template<typename udtype>
