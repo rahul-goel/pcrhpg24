@@ -516,23 +516,16 @@ struct Huffman {
     int max_cw_size = get_max_codeword_size();
 
     vector<pair<T,int>> table(1 << max_cw_size, {-1, -1});
-    for (auto [val, cw] : dictionary) {
-      int num_bits = cw.size();
+    for (auto [val, cw_arr] : dictionary) {
+      int num_bits = cw_arr.size();
       int rem_bits = max_cw_size - num_bits;
-      int cw_as_number = 0;
-      while (cw.size()) {
-        cw_as_number <<= 1;
-        cw_as_number = cw_as_number | cw.back();
-        cw.pop_back();
+      unsigned int cw = 0;
+      for (bool bit_val : cw_arr) {
+        cw = (cw << 1) | (unsigned int) bit_val;
       }
-      cw_as_number = cw_as_number << rem_bits;
-      table[cw_as_number] = {val, num_bits};
-    }
-
-    for (int i = 1; i < table.size(); ++i) {
-      if (table[i].second == -1) {
-        table[i] = table[i - 1];
-      }
+      cw = cw << rem_bits;
+      for (unsigned int bitmask = 0; bitmask < (1u << rem_bits); ++bitmask)
+        table[cw + bitmask] = {val, num_bits};
     }
 
     return table;
