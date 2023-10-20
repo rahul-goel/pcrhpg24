@@ -133,35 +133,35 @@ struct Huffman {
     return collapsed_dictionary;
   }
 
-  vector<bool> compress(vector<T> &data) {
-    vector<bool> bitstream;
-    for (T &item : data) {
-      auto &vec = dictionary[item];
-      bitstream.insert(bitstream.end(), vec.begin(), vec.end());
+  int get_max_codeword_size() {
+    int ret = 0;
+    for (auto &[val, cw] : dictionary) {
+      ret = max(ret, (int) cw.size());
     }
-    return bitstream;
+    return ret;
   }
 
-  vector<T> decompress(vector<bool> &bitstream) {
-    vector<T> data;
-    HuffmanNode *cur = head;
-    for (bool bit : bitstream) {
-      bool is_child = !cur->left and !cur->right;
-      if (is_child) {
-        data.push_back(cur->value);
-        cur = head;
-      }
+  vector<pair<T,int>> get_gpu_huffman_table() {
+    int max_cw_size = get_max_codeword_size();
 
-      if (!bit) {
-        cur = cur->left;
-      } else if (bit) {
-        cur = cur->right;
+    vector<pair<T,int>> table(1 << max_cw_size, {-1, -1});
+    for (auto [val, cw_arr] : dictionary) {
+      int num_bits = cw_arr.size();
+      int rem_bits = max_cw_size - num_bits;
+      unsigned int cw = 0;
+      for (bool bit_val : cw_arr) {
+        cw = (cw << 1) | (unsigned int) bit_val;
       }
+      cw = cw << rem_bits;
+      for (unsigned int bitmask = 0; bitmask < (1u << rem_bits); ++bitmask)
+        table[cw + bitmask] = {val, num_bits};
     }
-    data.push_back(cur->value);
-    return data;
+
+    return table;
   }
 
+  // this function works only when max_cw_size is less than or equal to number of bits in udtype
+  // so use udtype=uint32_t or udtype=uint64_t
   template<typename udtype, typename Iterator>
   vector<udtype> compress_udtype_subarray_fast(Iterator begin, Iterator end, unordered_map<T, pair<udtype,int>> &collapsed_dictionary) {
     vector<udtype> vec;                                         // final vector that stores the values in the specified data type
@@ -238,6 +238,39 @@ struct Huffman {
       ++it;
     }
     bitstream.pop_back();                                       // remove dummy value for (cur_ptr + 1)
+  }
+
+  // THE FUNCTIONS BELOW THIS WERE MADE DURING DEVELOPMENT
+  // THEY ARE NOT VERY EFFICIENT. THEIR API IS MOSTLY USED
+  // FOR UNIT TESTING
+
+  vector<bool> compress(vector<T> &data) {
+    vector<bool> bitstream;
+    for (T &item : data) {
+      auto &vec = dictionary[item];
+      bitstream.insert(bitstream.end(), vec.begin(), vec.end());
+    }
+    return bitstream;
+  }
+
+  vector<T> decompress(vector<bool> &bitstream) {
+    vector<T> data;
+    HuffmanNode *cur = head;
+    for (bool bit : bitstream) {
+      bool is_child = !cur->left and !cur->right;
+      if (is_child) {
+        data.push_back(cur->value);
+        cur = head;
+      }
+
+      if (!bit) {
+        cur = cur->left;
+      } else if (bit) {
+        cur = cur->right;
+      }
+    }
+    data.push_back(cur->value);
+    return data;
   }
 
   template<typename udtype>
@@ -543,33 +576,6 @@ struct Huffman {
       }
     }
     return data;
-  }
-
-  int get_max_codeword_size() {
-    int ret = 0;
-    for (auto &[val, cw] : dictionary) {
-      ret = max(ret, (int) cw.size());
-    }
-    return ret;
-  }
-
-  vector<pair<T,int>> get_gpu_huffman_table() {
-    int max_cw_size = get_max_codeword_size();
-
-    vector<pair<T,int>> table(1 << max_cw_size, {-1, -1});
-    for (auto [val, cw_arr] : dictionary) {
-      int num_bits = cw_arr.size();
-      int rem_bits = max_cw_size - num_bits;
-      unsigned int cw = 0;
-      for (bool bit_val : cw_arr) {
-        cw = (cw << 1) | (unsigned int) bit_val;
-      }
-      cw = cw << rem_bits;
-      for (unsigned int bitmask = 0; bitmask < (1u << rem_bits); ++bitmask)
-        table[cw + bitmask] = {val, num_bits};
-    }
-
-    return table;
   }
 
   void print_gpu_huffman_table() {
