@@ -264,3 +264,209 @@ void ComputeLasData::process(Renderer* renderer){
 	}
 
 }
+
+// My changes for the basic version
+
+void ComputeLasDataBasic::load(Renderer* renderer){
+	cout << "ComputeLasDataBasic::load()" << endl;
+	{
+		lock_guard<mutex> lock(mtx_state);
+
+		if(state != ResourceState::UNLOADED){
+			return;
+		}else{
+			state = ResourceState::LOADING;
+		}
+	}
+
+	{ // create buffers
+		int numBatches = (this->numPoints / POINTS_PER_WORKGROUP) + 1;
+		this->ssBatches = renderer->createBuffer(64 * numBatches);
+		this->ssXyz = renderer->createBuffer(4 * 3 * this->numPoints);
+		this->ssColors = renderer->createBuffer(4 * this->numPoints);
+		this->ssLoadBuffer = renderer->createBuffer(this->bytesPerPoint * MAX_POINTS_PER_BATCH);
+
+		GLuint zero = 0;
+		glClearNamedBufferData(this->ssBatches.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
+		glClearNamedBufferData(this->ssXyz.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
+		glClearNamedBufferData(this->ssColors.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
+	}
+
+
+	// start loader thread and detach it immediately
+	ComputeLasDataBasic *ref = this;
+	thread t([ref](){
+		int pointsRemaining = ref->numPoints;
+		int pointsRead = 0;
+		while(pointsRemaining > 0) {
+			{ // abort loader thread if state is set to unloading
+				lock_guard<mutex> lock(mtx_state);
+
+				if(ref->state == ResourceState::UNLOADING){
+					cout << "stopping loader thread for " << ref->path << endl;
+
+					ref->state = ResourceState::UNLOADED;
+
+					return;
+				}
+			}
+
+			if(ref->task){
+				this_thread::sleep_for(1ms);
+				continue;
+			}
+
+			int pointsInBatch = std::min(pointsRemaining, MAX_POINTS_PER_BATCH);
+			int64_t start = int64_t(ref->offsetToPointData) + int64_t(ref->bytesPerPoint) * int64_t(pointsRead);
+			int64_t size = ref->bytesPerPoint * pointsInBatch;
+			auto buffer = readBinaryFile(ref->path, start, size);
+
+			auto task = make_shared<LoaderTask>();
+			task->buffer = buffer;
+			task->pointOffset = pointsRead;
+			task->numPoints = pointsInBatch;
+
+			ref->task = task;
+
+			pointsRemaining -= pointsInBatch;
+			pointsRead += pointsInBatch;
+
+			Debug::set("numPointsLoaded", formatNumber(pointsRead));
+		}
+
+		cout << "finished loading " << formatNumber(pointsRead) << " points" << endl;
+
+		{ // check if resource was marked as unloading in the meantime
+			lock_guard<mutex> lock(mtx_state);
+
+			if(ref->state == ResourceState::UNLOADING){
+				cout << "stopping loader thread for " << ref->path << endl;
+
+				ref->state = ResourceState::UNLOADED;
+			}else if(ref->state == ResourceState::LOADING){
+				ref->state = ResourceState::LOADED;
+			}
+		}
+
+	});
+	t.detach();
+}
+
+void ComputeLasDataBasic::unload(Renderer* renderer){
+	cout << "ComputeLasDataBasic::unload()" << endl;
+
+	numPointsLoaded = 0;
+
+	// delete buffers
+	glDeleteBuffers(1, &ssBatches.handle);
+	glDeleteBuffers(1, &ssXyz.handle);
+	glDeleteBuffers(1, &ssColors.handle);
+	glDeleteBuffers(1, &ssLoadBuffer.handle);
+
+	lock_guard<mutex> lock(mtx_state);
+
+	if(state == ResourceState::LOADED){
+		state = ResourceState::UNLOADED;
+	}else if(state == ResourceState::LOADING){
+		// if loader thread is still running, notify thread by marking resource as "unloading"
+		state = ResourceState::UNLOADING;
+	}
+}
+
+void ComputeLasDataBasic::process(Renderer* renderer){
+  // I'll do everything in CPU for now
+  if (this->task) {
+    // metadata per batch
+    dvec3 batchBoxMin = this->boxMin;
+    dvec3 batchBoxMax = this->boxMax;
+    dvec3 batchPointScale = this->scale;
+    dvec3 batchPointOffset = this->offset;
+
+    auto &bytesPerPoint = this->bytesPerPoint;
+    int offset_rgb;
+    if (this->pointFormat == 2) {
+      offset_rgb = 20;
+    } else if (this->pointFormat == 3) {
+      offset_rgb = 28;
+    } else if (this->pointFormat == 7) {
+      offset_rgb = 30;
+    } else if (this->pointFormat == 8) {
+      offset_rgb = 30;
+    }
+
+    // host buffers
+    vector<int32_t> host_Xyz(4 * 3 * this->task->numPoints);
+    vector<uint32_t> host_Colors(4 * this->task->numPoints);
+
+    // iterate over all the points
+    for (int pid = 0; pid < this->task->numPoints; ++pid) {
+      unsigned int byteOffset = pid * bytesPerPoint;
+      int32_t X = this->task->buffer->get<int32_t>(byteOffset + 0);
+      int32_t Y = this->task->buffer->get<int32_t>(byteOffset + 4);
+      int32_t Z = this->task->buffer->get<int32_t>(byteOffset + 8);
+      // TODO: check for shift by uBoxMin
+      double x = double(double(X) * this->scale.x + this->offset.x); 
+      double y = double(double(Y) * this->scale.y + this->offset.y); 
+      double z = double(double(Z) * this->scale.z + this->offset.z); 
+
+      if (this->numPointsLoaded == 0 && pid == 0) {
+        cout << "first point " << X << " " << Y << " " << Z << endl;
+      }
+
+      uint32_t R = this->task->buffer->get<uint16_t>(byteOffset + offset_rgb + 0);
+      uint32_t G = this->task->buffer->get<uint16_t>(byteOffset + offset_rgb + 2);
+      uint32_t B = this->task->buffer->get<uint16_t>(byteOffset + offset_rgb + 4);
+      uint32_t r = R > 255 ? R / 256 : R;
+      uint32_t g = G > 255 ? G / 256 : G;
+      uint32_t b = B > 255 ? B / 256 : B;
+      uint32_t color = r | (g << 8) | (b << 16);
+
+      // update local bounding box of the batch
+      batchBoxMin.x = std::min(batchBoxMin.x, (double) x);
+      batchBoxMin.y = std::min(batchBoxMin.y, (double) y);
+      batchBoxMin.z = std::min(batchBoxMin.z, (double) z);
+      batchBoxMax.x = std::max(batchBoxMax.x, (double) x);
+      batchBoxMax.y = std::max(batchBoxMax.y, (double) y);
+      batchBoxMax.z = std::max(batchBoxMax.z, (double) z);
+
+      // insert the data into the host buffers
+      host_Xyz[pid * 3 + 0] = X;
+      host_Xyz[pid * 3 + 1] = Y;
+      host_Xyz[pid * 3 + 2] = Z;
+      host_Colors[pid] = color;
+    }
+
+    // create batch data
+    Batch batchData {
+      0,
+      (float) batchBoxMin.x, (float) batchBoxMin.y, (float) batchBoxMin.z,
+      (float) batchBoxMax.x, (float) batchBoxMax.y, (float) batchBoxMax.z,
+      (int) this->task->numPoints,
+      0, 0,
+      (float) batchPointScale.x, (float) batchPointScale.y, (float) batchPointScale.z,
+      (float) batchPointOffset.x, (float) batchPointOffset.y, (float) batchPointOffset.z
+    };
+
+    // copy from host to device to the correct location
+    // 12 bytes per point
+    uint32_t XyzOffset = this->task->pointOffset * 3 * 4;
+    uint32_t XyzSize = this->task->numPoints * 3 * 4;
+    glNamedBufferSubData(this->ssXyz.handle, XyzOffset, XyzSize, host_Xyz.data());
+    // 4 bytes per point
+    uint32_t ColorsOffset = this->task->pointOffset * 4;
+    uint32_t ColorsSize = this->task->numPoints * 4;
+    glNamedBufferSubData(this->ssColors.handle, ColorsOffset, ColorsSize, host_Colors.data());
+    // sizeof(Batch) bytes per batch
+    uint32_t BatchDataOffset = this->numPointsLoaded / POINTS_PER_WORKGROUP;
+    uint32_t BatchDataSize = sizeof(Batch);
+    glNamedBufferSubData(this->ssBatches.handle, BatchDataOffset, BatchDataSize, &batchData);
+
+    int numBatches = this->task->numPoints / POINTS_PER_WORKGROUP;
+    if((this->task->numPoints % POINTS_PER_WORKGROUP) != 0){
+      numBatches++;
+    }
+    this->numPointsLoaded += this->task->numPoints;
+    this->numBatchesLoaded += numBatches;
+    this->task = nullptr;
+  }
+}
