@@ -13,6 +13,7 @@
 #include <unordered_set>
 #include <queue>
 #include <chrono>
+#include <future>
 #include "morton.h"
 #include "mymorton.h"
 #include "huffman.h"
@@ -23,13 +24,14 @@
 #define TARGET_START_RGBA TARGET_START_Z + 4
 #define TARGET_SZ         4 * 4
 
-#define NUM_THREADS 1
+#define NUM_THREADS 512
 
 string LASFILE = "/home/rg/lidar_data/morro_bay.las";
 // string LASFILE = "/home/rg/lidar_data/tree.las";
 // string LASFILE = "/home/rg/lidar_data/points.las";
 // const int64_t BATCH_SIZE = NUM_THREADS * 200;
-const int64_t BATCH_SIZE = 1e7;
+const int64_t CHAIN_SIZE = 50;
+const int64_t BATCH_SIZE = NUM_THREADS * CHAIN_SIZE;
 
 using namespace std;
 using glm::dvec3;
@@ -591,11 +593,233 @@ void multichain_logic(Huffman<int32_t> &hfmn, vector<int32_t> &actual_x, vector<
   for (int i = 1; i < sizes.size(); ++i) cout << (double) sizes[i] / (double) sizes.back() << endl;
 }
 
+// [start_idx, batch_size] vector returned
+vector<pair<int,int>> get_batch_parameters(int num_points) {
+  vector<pair<int,int>> batches;
+  for (int start_idx = 0; start_idx < num_points; start_idx += BATCH_SIZE) {
+    int batch_size = min((int) BATCH_SIZE, num_points - start_idx);
+    batches.push_back({start_idx, batch_size});
+  }
+  return batches;
+}
+
+vector<pair<int,int>> get_chain_parameters(int num_points, int num_chains) {
+  vector<pair<int,int>> chains;
+  int d = num_points / num_chains, r = num_points % num_chains;
+  int start_idx = 0;
+  for (int i = 0; i < num_chains; ++i) {
+    if (i < r) {
+      // d + 1
+      chains.push_back({start_idx, d + 1});
+      start_idx += d + 1;
+    } else {
+      // d
+      chains.push_back({start_idx, d});
+      start_idx += d;
+    }
+  }
+  return chains;
+}
+
+typedef enum {
+  full_huffman, clipped_huffman
+} method_type;
+
+struct Chain {
+  int point_offset;
+  int num_points;
+  int32_t start_xyz[3];
+  float compression_ratio;
+  Huffman<int32_t> *hfmn_ptr;
+
+  method_type method;
+
+  vector<int32_t> x, y, z;
+  vector<int32_t> delta_x, delta_y, delta_z;
+  vector<int32_t> delta_interleaved;
+  vector<uint32_t> encoded;
+  vector<int32_t> decoded;
+  
+  pair<vector<uint32_t>,vector<int32_t>> encoded_markus;
+  vector<int32_t> decoded_markus;
+
+  Chain(int point_offset, int num_points,
+        vector<int32_t>::iterator x_begin, vector<int32_t>::iterator x_end,
+        vector<int32_t>::iterator y_begin, vector<int32_t>::iterator y_end,
+        vector<int32_t>::iterator z_begin, vector<int32_t>::iterator z_end) {
+    this->point_offset = point_offset;
+    this->num_points = num_points;
+
+    x = vector<int32_t>(x_begin, x_end);
+    y = vector<int32_t>(y_begin, y_end);
+    z = vector<int32_t>(z_begin, z_end);
+  }
+
+  void calculate_deltas() {
+    delta_x.clear(), delta_y.clear(), delta_z.clear();
+    delta_x.resize(num_points), delta_y.resize(num_points), delta_z.resize(num_points);
+
+    for (int i = num_points - 1; i >= 1; --i) {
+      delta_x[i] = x[i] - x[i - 1];
+      delta_y[i] = y[i] - y[i - 1];
+      delta_z[i] = z[i] - z[i - 1];
+    }
+    delta_x[0] = 0, delta_y[0] = 0, delta_z[0] = 0;
+    start_xyz[0] = x[0], start_xyz[1] = y[0], start_xyz[2] = z[0];
+  }
+
+  void interleave() {
+    delta_interleaved.clear();
+    assert(delta_x.size() == num_points);
+    assert(delta_y.size() == num_points);
+    assert(delta_z.size() == num_points);
+
+    delta_interleaved.resize(num_points * 3);
+    for (int i = 0; i < num_points; ++i) {
+      delta_interleaved[i * 3 + 0] = delta_x[i];
+      delta_interleaved[i * 3 + 1] = delta_y[i];
+      delta_interleaved[i * 3 + 2] = delta_z[i];
+    }
+  }
+
+  void encode() {
+    auto hfmn = *hfmn_ptr;
+    auto collapsed_dict = hfmn.get_collapsed_dictionary<uint32_t>();
+    if (method == full_huffman) {
+      encoded.clear();
+      encoded = hfmn.compress_udtype_subarray_fast<uint32_t, typename vector<int32_t>::iterator>(delta_interleaved.begin(), delta_interleaved.end(), collapsed_dict);
+    } else if (method == clipped_huffman) {
+      encoded_markus = hfmn.compress_udtype_subarray_fast_markus_idea<
+        uint32_t, typename vector<int32_t>::iterator, int32_t>(
+          delta_interleaved.begin(), delta_interleaved.end(), collapsed_dict);
+    }
+  }
+
+  void decode() {
+    auto hfmn = *hfmn_ptr;
+    auto decoder_table = hfmn.get_gpu_huffman_table();
+    if (method == full_huffman) {
+      decoded.clear();
+      decoded.resize(num_points * 3);
+      hfmn.decompress_udtype_subarray_fast<uint32_t, typename vector<int32_t>::iterator>(decoded.begin(), decoded.end(), encoded, decoder_table);
+    } else if (method == clipped_huffman) {
+      decoded_markus.clear();
+      decoded_markus.resize(num_points * 3);
+      hfmn.decompress_udtype_subarray_fast_markus_idea<
+        uint32_t, typename vector<int32_t>::iterator, int32_t>(
+          decoded_markus.begin(), decoded_markus.end(), encoded_markus.first,
+          encoded_markus.second, decoder_table);
+    }
+  }
+
+  void assert_delta_interleaved_decoded() {
+    if (method == full_huffman) {
+      assert(delta_interleaved == decoded);
+    } else if (method == clipped_huffman) {
+      assert(delta_interleaved == decoded_markus);
+    }
+  }
+
+  void calcualte_compression_ratio() {
+    float og_size = num_points * 3 * sizeof(int32_t);
+    float new_size = 0;
+    if (method == full_huffman) {
+      new_size = encoded.size() * sizeof(encoded[0]);
+    } else if (method == clipped_huffman) {
+      new_size =
+          encoded_markus.first.size() * sizeof(encoded_markus.first[0]) +
+          encoded_markus.second.size() * sizeof(encoded_markus.second[0]);
+    }
+    float ratio = og_size / new_size;
+    this->compression_ratio = ratio;
+  }
+
+  float get_og_size() {
+    float og_size =num_points * 3 * sizeof(int32_t);
+    return og_size;
+  }
+
+  float get_compressed_size() {
+    float new_size = 0;
+    if (method == full_huffman) {
+      new_size = encoded.size() * sizeof(encoded[0]);
+    } else if (method == clipped_huffman) {
+      new_size =
+          encoded_markus.first.size() * sizeof(encoded_markus.first[0]) +
+          encoded_markus.second.size() * sizeof(encoded_markus.second[0]);
+    }
+    return new_size;
+  }
+
+};
+
+struct Batch {
+  int point_offset;
+  int num_points;
+  vector<Chain> chains;
+  Huffman<int32_t> hfmn;
+  method_type method;
+  float compression_ratio;
+
+  Batch(int point_offset, int num_points, method_type method,
+        vector<int32_t>::iterator x_begin, vector<int32_t>::iterator x_end,
+        vector<int32_t>::iterator y_begin, vector<int32_t>::iterator y_end,
+        vector<int32_t>::iterator z_begin, vector<int32_t>::iterator z_end) {
+    this->point_offset = point_offset;
+    this->num_points = num_points;
+    this->method = method;
+
+    chains.clear();
+    auto chain_parameters = get_chain_parameters(num_points, NUM_THREADS);
+    for (auto &[offset, chain_size] : chain_parameters) {
+      chains.push_back(Chain(point_offset + offset, chain_size,
+                         x_begin + offset, x_begin + offset + chain_size,
+                         y_begin + offset, y_begin + offset + chain_size,
+                         z_begin + offset, z_begin + offset + chain_size));
+      chains.back().method = this->method;
+    }
+  }
+
+  void calculate() {
+    vector<int32_t> all_deltas;
+    for (int i = 0; i < NUM_THREADS; ++i) {
+      chains[i].calculate_deltas();
+      chains[i].interleave();
+      all_deltas.insert(all_deltas.end(), chains[i].delta_interleaved.begin(), chains[i].delta_interleaved.end());
+    }
+
+    hfmn = Huffman<int32_t>();
+    hfmn.calculate_frequencies(all_deltas);
+    if (method == clipped_huffman)
+      hfmn.clip_to_top(128);
+    hfmn.generate_huffman_tree();
+    hfmn.create_dictionary();
+
+    float old_size = 0;
+    float new_size = 0;
+    for (int i = 0; i < NUM_THREADS; ++i) {
+      chains[i].hfmn_ptr = &hfmn;
+      chains[i].encode();
+      chains[i].decode();
+      chains[i].assert_delta_interleaved_decoded();
+      old_size += chains[i].get_og_size();
+      new_size += chains[i].get_compressed_size();
+    }
+    // add huffman size
+    auto decoder_table = hfmn.get_gpu_huffman_table();
+    for (auto &[symbol, cw_len] : decoder_table) {
+      new_size += sizeof(symbol);
+      new_size += sizeof(cw_len);
+    }
+    this->compression_ratio = old_size / new_size;
+  }
+};
+
 int main() {
   cout << "Starting Program." << endl;
 
   // load the first 10 million points.
-  auto las_points = LasLoader::loadSync(LASFILE, 0, 1e5);
+  auto las_points = LasLoader::loadSync(LASFILE, 0, 1e7);
 
   cout << "Scale:" << endl;
   cout << las_points.c_scale.x << " " << las_points.c_scale.y << " "  << las_points.c_scale.z << endl;
@@ -610,14 +834,6 @@ int main() {
     actual_x[i] = las_points.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_X);
     actual_y[i] = las_points.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_Y);
     actual_z[i] = las_points.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_Z);
-  }
-
-  // trying out faiss
-  vector<float> values;
-  for (int i = 0; i < num_points; ++i) {
-    values.push_back(float(actual_x[i]) * las_points.c_scale.x + las_points.c_offset.x);
-    values.push_back(float(actual_y[i]) * las_points.c_scale.y + las_points.c_offset.y);
-    values.push_back(float(actual_z[i]) * las_points.c_scale.z + las_points.c_offset.z);
   }
 
   // morton_order
@@ -644,9 +860,121 @@ int main() {
   hfmn.calculate_frequencies(all_delta);
   hfmn.generate_huffman_tree();
   hfmn.create_dictionary();
-  auto collapsed_dict = hfmn.get_collapsed_dictionary<uint32_t>();
-  auto encoded = hfmn.compress_udtype_subarray_fast<uint32_t, vector<int32_t>::iterator>(all_delta.begin(), all_delta.end(), collapsed_dict);
-  auto decoded = hfmn.decompress_udtype<uint32_t>(encoded, all_delta.size());
+
+  vector<pair<int,int>> batch_configuration = get_batch_parameters(num_points);
+  vector<Batch> batches;
+  for (auto &[start_point, size]: batch_configuration) {
+    auto begin_x = actual_x.begin() + start_point;
+    auto begin_y = actual_y.begin() + start_point;
+    auto begin_z = actual_z.begin() + start_point;
+    auto end_x = actual_x.begin() + start_point + size;
+    auto end_y = actual_y.begin() + start_point + size;
+    auto end_z = actual_z.begin() + start_point + size;
+
+    Batch batch(start_point, size, clipped_huffman,
+                actual_x.begin() + start_point, actual_x.begin() + start_point + size,
+                actual_y.begin() + start_point, actual_y.begin() + start_point + size,
+                actual_z.begin() + start_point, actual_z.begin() + start_point + size);
+    batch.hfmn = hfmn;
+    batches.push_back(batch);
+  }
+
+  queue<future<void>> futures;
+  int processed = 0;
+  for (int i = 0; i < batches.size(); ++i) {
+    while (futures.size() >= 8) {
+      futures.front().get();
+      futures.pop();
+      processed += 1;
+      printf("\r%f", (float) processed / batches.size());
+      fflush(stdout);
+    }
+
+    auto lambda = [&batches, i] {
+      batches[i].calculate();
+    };
+    futures.push(async(launch::async, lambda));
+  }
+  cout << endl;
+
+  while (futures.size() > 0) {
+    futures.front().get();
+    futures.pop();
+  }
+
+  float compression_ratio = 0;
+  cout << "Number of batches: " << batches.size() << endl;
+  for (auto &batch: batches) {
+    compression_ratio += batch.compression_ratio;
+  }
+  compression_ratio /= (float) (batches.size());
+  cout << "Global compression ratio: " << compression_ratio << endl;
+  return 0;
+
+  // vector<Chain> chains;
+  // vector<pair<int,int>> chain_configurations = get_batch_parameters(num_points);
+  // for (auto &[start_point, size] : chain_configurations) {
+  //   auto begin_x = actual_x.begin() + start_point;
+  //   auto begin_y = actual_y.begin() + start_point;
+  //   auto begin_z = actual_z.begin() + start_point;
+  //   auto end_x = actual_x.begin() + start_point + size;
+  //   auto end_y = actual_y.begin() + start_point + size;
+  //   auto end_z = actual_z.begin() + start_point + size;
+
+  //   Chain chain(start_point, size,
+  //               actual_x.begin() + start_point, actual_x.begin() + start_point + size,
+  //               actual_y.begin() + start_point, actual_y.begin() + start_point + size,
+  //               actual_z.begin() + start_point, actual_z.begin() + start_point + size);
+  //   chains.push_back(chain);
+  // }
+
+  // queue<future<void>> futures;
+  // int processed = 0;
+  // for (int i = 0; i < chains.size(); ++i) {
+  //   while (futures.size() > 12) {
+  //     futures.front().get();
+  //     futures.pop();
+  //     processed += 1;
+  //     printf("\r%f", (float) processed / chains.size());
+  //     fflush(stdout);
+  //   }
+
+  //   auto lambda = [&chains, &hfmn, i] {
+  //     chains[i].calculate_deltas();
+  //     chains[i].interleave();
+  //     chains[i].encode(hfmn);
+  //     chains[i].decode(hfmn);
+  //     chains[i].assert_delta_interleaved_decoded();
+  //     chains[i].calcualte_compression_ratio();
+  //   };
+  //   futures.push(async(launch::async, lambda));
+  // }
+  // cout << endl;
+
+  // while (futures.size() > 0) {
+  //   futures.front().get();
+  //   futures.pop();
+  // }
+
+  // float compression_ratio = 0;
+  // cout << "Number of chains: " << chains.size() << endl;
+  // for (auto &chain: chains) {
+  //   compression_ratio += chain.compression_ratio;
+  // }
+  // compression_ratio /= (float) chains.size();
+  // cout << "Global compression ratio: " << compression_ratio << endl;
+  // return 0;
+
+  /*
+  using udtype = uint64_t;
+  auto collapsed_dict = hfmn.get_collapsed_dictionary<udtype>();
+  auto encoded1 = hfmn.compress_udtype_subarray_fast<udtype, vector<int32_t>::iterator>(all_delta.begin(), all_delta.end(), collapsed_dict);
+  auto encoded2 = hfmn.compress_udtype<udtype>(all_delta);
+  assert (encoded1 == encoded2);
+  // auto decoded = hfmn.decompress_udtype<udtype>(encoded, all_delta.size());
+  vector<int32_t> decoded(all_delta.size());
+  auto decoder_table = hfmn.get_gpu_huffman_table();
+  hfmn.decompress_udtype_subarray_fast<udtype, vector<int32_t>::iterator>(decoded.begin(), decoded.end(), encoded1, decoder_table);
   assert (decoded == all_delta);
   return 0;
 
@@ -958,4 +1286,5 @@ int old_main() {
   cout << "Remaining Values: " << num_points - covered_values / 3<< endl;
 
   return 0;
+  */
 }

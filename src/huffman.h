@@ -1,10 +1,12 @@
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <algorithm>
 #include <numeric>
 #include <cassert>
 #include <iostream>
 #include <bitset>
+#include <future>
 
 using namespace std;
 
@@ -94,6 +96,17 @@ struct Huffman {
     return ret;
   }
 
+  void clip_to_top(int num) {
+    auto sorted_frequencies = get_sorted_frequencies();
+    num = min(num, (int) sorted_frequencies.size());
+    vector<T> dummy_vector;
+    for (int i = 0; i < num; ++i) {
+      auto &[value, freq] = sorted_frequencies[i];
+      for (int cnt = 0; cnt < freq; ++cnt) dummy_vector.push_back(value);
+    }
+    calculate_frequencies(dummy_vector);
+  }
+
   void create_dictionary(HuffmanNode *cur, vector<bool> &cur_code, unordered_map<T,vector<bool>> &dict) {
     bool is_leaf = true;
     if (cur->left) {
@@ -173,7 +186,7 @@ struct Huffman {
 
     udtype mask;
     for (Iterator it = begin; it != end; ++it) {
-      pair<udtype,int> p = collapsed_dictionary[*it];
+      pair<udtype,int> p = collapsed_dictionary.at(*it);
       udtype cw = p.first;
       int cw_tot_bits = p.second;
       int cw_rem_bits = cw_tot_bits;
@@ -235,6 +248,113 @@ struct Huffman {
         cur_ptr += 1;
         cur_bits = cur_bits + udtype_num_bits - cw_size;
       }
+      ++it;
+    }
+    bitstream.pop_back();                                       // remove dummy value for (cur_ptr + 1)
+  }
+
+  template<typename udtype, typename Iterator, typename delta_dtype>
+  pair<vector<udtype>,vector<delta_dtype>> compress_udtype_subarray_fast_markus_idea(Iterator begin, Iterator end, unordered_map<T, pair<udtype,int>> &collapsed_dictionary) {
+    vector<udtype> vec;                                         // final vector that stores the values in the specified data type
+    const int udtype_num_bits = 8 * sizeof(udtype);             // number of bits in the data type
+    udtype chunk = 0;                                           // element that reprsents the current value to be pushed into the final vector
+    int chunk_rem_bits = udtype_num_bits;                       // number of unoccupied bits (from the LSB side) in the cur_value
+
+    assert(get_max_codeword_size() <= udtype_num_bits);         // else function will not work
+
+    vector<delta_dtype> separate_data;
+    udtype mask;
+    for (Iterator it = begin; it != end; ++it) {
+      auto symbol = *it;
+      bool in_dict = collapsed_dictionary.find(symbol) != collapsed_dictionary.end();
+
+      udtype cw;
+      int cw_rem_bits;
+
+      if (in_dict) {
+        // put a 1 at the beginning of the huffman code
+        pair<udtype,int> p = collapsed_dictionary.at(*it);
+        cw = p.first;
+        cw_rem_bits = p.second;
+
+        cw = cw | (1 << cw_rem_bits);
+        cw_rem_bits += 1;
+      } else {
+        cw = 0;
+        cw_rem_bits = 1;
+        separate_data.push_back(symbol);
+      }
+
+      while (cw_rem_bits) {
+        int min_bits = min(chunk_rem_bits, cw_rem_bits);
+        mask = (((udtype) 1 << cw_rem_bits) - 1) - (((udtype) 1 << (cw_rem_bits - min_bits)) - 1);
+        chunk = chunk | (((mask & cw) >> (cw_rem_bits - min_bits)) << (chunk_rem_bits - min_bits));
+
+        cw_rem_bits -= min_bits;
+        chunk_rem_bits -= min_bits;
+
+        if (chunk_rem_bits == 0) {
+          vec.push_back(chunk);
+          chunk = 0;
+          chunk_rem_bits = udtype_num_bits;
+        }
+      }
+    }
+
+    if (chunk_rem_bits < udtype_num_bits) {
+      vec.push_back(chunk);
+    }
+
+    return {vec, separate_data};
+  }
+
+  template<typename udtype, typename Iterator, typename delta_dtype>
+  void decompress_udtype_subarray_fast_markus_idea(Iterator begin, Iterator end, vector<udtype> &bitstream, vector<delta_dtype> &separate_data, vector<pair<T,int>> &decoder_table) {
+    const int udtype_num_bits = 8 * sizeof(udtype);             // number of bits in the data type
+    int max_cw_size = get_max_codeword_size();                  // max codewords size
+    assert(max_cw_size <= udtype_num_bits);                     // else function will not work
+
+    // extra head node
+    max_cw_size += 1;
+    int sep_ptr = 0;
+
+    int cur_ptr = 0;
+    int cur_bits = udtype_num_bits;
+    udtype window, key;
+    udtype mask = ((1 << max_cw_size) - 1) << (udtype_num_bits - max_cw_size);
+
+    bitstream.push_back(0);                                     // add dummy value for (cur_ptr + 1)
+    Iterator it = begin;
+    while (it != end) {
+      udtype L = cur_bits == udtype_num_bits ? bitstream[cur_ptr] : (bitstream[cur_ptr] << (udtype_num_bits - cur_bits));
+      udtype R = cur_bits == udtype_num_bits ? 0 : (bitstream[cur_ptr + 1] >> cur_bits);
+      window = L | R;
+      key = (window & mask) >> (udtype_num_bits - max_cw_size);
+      if ((key >> (max_cw_size - 1)) & 1) {
+        pair<T, int> p = decoder_table[key - (1 << (max_cw_size - 1))];
+        T &symbol = p.first;
+        int &cw_size = p.second;
+        cw_size += 1;
+        *it = symbol;
+
+        int min_bits = min(cw_size, cur_bits);
+        cur_bits -= min_bits;
+        cw_size -= min_bits;
+        if (cw_size < cur_bits) {
+          cur_bits -= cw_size;
+        } else {
+          cur_ptr += 1;
+          cur_bits = cur_bits + udtype_num_bits - cw_size;
+        }
+      } else {
+        *it = separate_data[sep_ptr++];
+        cur_bits -= 1;
+        if (cur_bits == 0) {
+          cur_ptr += 1;
+          cur_bits = udtype_num_bits;
+        }
+      }
+
       ++it;
     }
     bitstream.pop_back();                                       // remove dummy value for (cur_ptr + 1)
