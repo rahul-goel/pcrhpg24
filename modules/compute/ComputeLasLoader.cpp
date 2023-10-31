@@ -409,10 +409,6 @@ void ComputeLasDataBasic::process(Renderer* renderer){
       double y = double(double(Y) * this->scale.y + this->offset.y); 
       double z = double(double(Z) * this->scale.z + this->offset.z); 
 
-      if (this->numPointsLoaded == 0 && pid == 0) {
-        cout << "first point " << X << " " << Y << " " << Z << endl;
-      }
-
       uint32_t R = this->task->buffer->get<uint16_t>(byteOffset + offset_rgb + 0);
       uint32_t G = this->task->buffer->get<uint16_t>(byteOffset + offset_rgb + 2);
       uint32_t B = this->task->buffer->get<uint16_t>(byteOffset + offset_rgb + 4);
