@@ -706,4 +706,3 @@ struct Huffman {
     }
   }
 };
-
