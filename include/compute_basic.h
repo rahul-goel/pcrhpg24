@@ -20,6 +20,7 @@
 #include "Frustum.h"
 #include "Renderer.h"
 #include "GLTimerQueries.h"
+#include "Shader.h"
 
 using namespace std;
 using namespace std::chrono_literals;
