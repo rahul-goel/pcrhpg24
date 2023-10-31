@@ -16,6 +16,7 @@
 #include "compute_loop_las_cuda/compute_loop_las_cuda.h"
 #include "experimental/experimental.h"
 #include "basic_cuda/basic_cuda.h"
+#include "huffman_cuda/huffman_cuda.h"
 #include "compute_loop_las_hqs/compute_loop_las_hqs.h"
 // #include "compute_loop_las_hqs_vr/compute_loop_las_hqs_vr.h"
 // #include "compute_loop_nodes/compute_loop_nodes.h"
@@ -35,6 +36,7 @@
 #include "Method.h"
 #include "compute/ComputeLasLoader.h"
 #include "compute/LasLoaderStandard.h"
+#include "compute/HuffmanLasLoader.h"
 // #include "compute/PotreeData.h"
 
 
@@ -62,6 +64,7 @@ int main(){
 	struct Setting{
 		string path_potree = "";
 		string path_las = "";
+    string path_huffman = "";
 		float yaw = 0.0;
 		float pitch = 0.0;
 		float radius = 0.0;
@@ -272,6 +275,7 @@ int main(){
 		// setting.path_las = "F:/temp/wgtest/banyunibo_laserscans/merged.las";
 		// setting.path_las = "/home/rg/lidar_data/tree.las";
 		setting.path_las = "/home/rg/lidar_data/morro_bay.las";
+    setting.path_huffman = "/home/rg/repos/compute_rasterizer/out/points.huffman";
 		// setting.path_las = "/home/rg/lidar_data/points.las";
 
 		// outside
@@ -334,8 +338,8 @@ int main(){
 	auto las_encode_444 = ComputeLasData::create(setting.path_las);
 	auto las_standard = LasStandardData::create(setting.path_las);
   auto las_basic = ComputeLasDataBasic::create(setting.path_las);
+  auto las_huffman = HuffmanLasData::create(setting.path_huffman);
 
-  /*
 	{ // 4-4-4 byte format
 		auto computeLoopLas       = new ComputeLoopLas(renderer.get(), las_encode_444);
 		auto computeLoopLas2      = new ComputeLoopLas2(renderer.get(), las_encode_444);
@@ -343,20 +347,22 @@ int main(){
 		// auto computeLoopLasHqsVR  = new ComputeLoopLasHqsVR(renderer.get(), las_encode_444);
 		auto computeCUDALas       = new ComputeLoopLasCUDA(renderer.get(), las_encode_444);
     auto experimental         = new Experimental(renderer.get(), las_encode_444);
-		Runtime::addMethod((Method*)computeLoopLas);
-		Runtime::addMethod((Method*)computeLoopLas2);
-		Runtime::addMethod((Method*)computeLoopLasHqs);
+
+		// Runtime::addMethod((Method*)computeLoopLas);
+		// Runtime::addMethod((Method*)computeLoopLas2);
+		// Runtime::addMethod((Method*)computeLoopLasHqs);
 		// Runtime::addMethod((Method*)computeLoopLasHqsVR);
-		Runtime::addMethod((Method*)computeCUDALas);
-		Runtime::addMethod((Method*)experimental);
+		// Runtime::addMethod((Method*)computeCUDALas);
+		// Runtime::addMethod((Method*)experimental);
 	}
-  */
 
   { // Rahul's methods
     auto basic1 = new BasicCuda(renderer.get(), las_basic);
     auto basic2 = new BasicCuda(renderer.get(), las_basic);
+    auto huffman_cuda = new ComputeHuffman(renderer.get(), las_huffman);
 		Runtime::addMethod((Method*) basic1);
 		Runtime::addMethod((Method*) basic2);
+    Runtime::addMethod((Method*)huffman_cuda);
   }
 
 	{ // POTREE FORMAT
