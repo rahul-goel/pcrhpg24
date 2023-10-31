@@ -4,6 +4,8 @@ project(compute_rasterizer)
 include(FetchContent)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 
 file(GLOB SOURCES "src/*")
@@ -16,6 +18,7 @@ add_executable(${PROJECT_NAME}
   src/Texture.cpp
   include/unsuck_platform_specific.cpp
   modules/compute/ComputeLasLoader.cpp
+  modules/compute/HuffmanLasLoader.cpp
   modules/compute/LasLoaderSparse.cpp
 )
 add_executable(rahul
@@ -27,7 +30,17 @@ add_executable(rahul
   src/Texture.cpp
   include/unsuck_platform_specific.cpp
   modules/compute/ComputeLasLoader.cpp
+  modules/compute/HuffmanLasLoader.cpp
   modules/compute/LasLoaderSparse.cpp
+)
+
+add_executable(test_huffman
+  src/test_huffman.cpp
+)
+
+add_executable(preprocess
+  src/preprocess.cpp
+  include/unsuck_platform_specific.cpp
 )
 
 include_directories(
