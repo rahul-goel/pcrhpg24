@@ -2,11 +2,13 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <algorithm>
+#include <queue>
 #include <numeric>
 #include <cassert>
 #include <iostream>
 #include <bitset>
 #include <future>
+#include <cmath>
 
 using namespace std;
 
@@ -87,6 +89,22 @@ struct Huffman {
     head = all_nodes.back();
   }
 
+  void clear_huffman_tree(HuffmanNode *node) {
+    if (node->left) {
+      clear_huffman_tree(node->left);
+      delete node->left;
+    }
+    if (node->right) {
+      clear_huffman_tree(node->right);
+      delete node->right;
+    }
+  }
+
+  void clear_huffman_tree() {
+    clear_huffman_tree(head);
+    delete head;
+  }
+
   vector<pair<T,unsigned int>> get_sorted_frequencies() {
     vector<pair<T, unsigned int>> ret;
     for (auto &[key, val] : frequencies) ret.push_back({key, val});
@@ -105,6 +123,35 @@ struct Huffman {
       for (int cnt = 0; cnt < freq; ++cnt) dummy_vector.push_back(value);
     }
     calculate_frequencies(dummy_vector);
+  }
+
+  void constraint_table_size(int table_size) {
+    // auto sorted_frequencies = get_sorted_frequencies();
+    auto save_frequencies = frequencies;
+
+    int left = 1, right = table_size;
+    int optimal_symbols_to_take = 0;
+    while (left <= right) {
+      int mid = (left + right) >> 1;
+
+      frequencies = save_frequencies;
+      clip_to_top(mid);
+      generate_huffman_tree();
+      create_dictionary();
+      clear_huffman_tree();
+      int max_cw_size = get_max_codeword_size();
+      int cur_table_size = (1 << max_cw_size);
+
+      if (cur_table_size <= table_size) {
+        optimal_symbols_to_take = mid;
+        left = mid + 1;
+      } else {
+        right = mid - 1;
+      }
+    }
+
+    frequencies = save_frequencies;
+    clip_to_top(optimal_symbols_to_take);
   }
 
   void create_dictionary(HuffmanNode *cur, vector<bool> &cur_code, unordered_map<T,vector<bool>> &dict) {
