@@ -43,6 +43,19 @@ struct ComputeHuffman : public Method {
 	CUgraphicsResource output;
   CUevent start, end;
 
+  CUdeviceptr BatchData_ptr;
+  CUdeviceptr StartValues_ptr;
+  CUdeviceptr EncodedData_ptr;
+  CUdeviceptr EncodedDataOffsets_ptr;
+  CUdeviceptr EncodedDataSizes_ptr;
+  CUdeviceptr SeparateData_ptr;
+  CUdeviceptr SeparateDataOffsets_ptr;
+  CUdeviceptr SeparateDataSizes_ptr;
+  CUdeviceptr DecoderTableValues_ptr;
+  CUdeviceptr DecoderTableCWLen_ptr;
+  CUdeviceptr Colors_ptr;
+
+
   shared_ptr<HuffmanLasData> las = nullptr;
   Renderer *renderer;
 
@@ -146,23 +159,20 @@ struct ComputeHuffman : public Method {
     }
 
     // get pointers for cuda pointers for the common buffers
-    static CUdeviceptr BatchData_ptr, StartValues_ptr, EncodedData_ptr,
-        EncodedDataOffsets_ptr, EncodedDataSizes_ptr, SeparateData_ptr,
-        SeparateDataOffsets_ptr, SeparateDataSizes_ptr, DecoderTableValues_ptr,
-        DecoderTableCWLen_ptr, Colors_ptr;
-
-    size_t size;
-		cuGraphicsResourceGetMappedPointer(&BatchData_ptr, &size, BatchData);
-		cuGraphicsResourceGetMappedPointer(&StartValues_ptr, &size, StartValues);
-		cuGraphicsResourceGetMappedPointer(&EncodedData_ptr, &size, EncodedData);
-		cuGraphicsResourceGetMappedPointer(&EncodedDataOffsets_ptr, &size, EncodedDataOffsets);
-		cuGraphicsResourceGetMappedPointer(&EncodedDataSizes_ptr, &size, EncodedDataSizes);
-		cuGraphicsResourceGetMappedPointer(&SeparateData_ptr, &size, SeparateData);
-		cuGraphicsResourceGetMappedPointer(&SeparateDataOffsets_ptr, &size, SeparateDataOffsets);
-		cuGraphicsResourceGetMappedPointer(&SeparateDataSizes_ptr, &size, SeparateDataSizes);
-    cuGraphicsResourceGetMappedPointer(&DecoderTableValues_ptr, &size, DecoderTableValues);
-    cuGraphicsResourceGetMappedPointer(&DecoderTableCWLen_ptr, &size, DecoderTableCWLen);
-    cuGraphicsResourceGetMappedPointer(&Colors_ptr, &size, Colors);
+    if (las->numPointsLoaded < las->numPoints) {
+      size_t size;
+      cuGraphicsResourceGetMappedPointer(&BatchData_ptr, &size, BatchData);
+      cuGraphicsResourceGetMappedPointer(&StartValues_ptr, &size, StartValues);
+      cuGraphicsResourceGetMappedPointer(&EncodedData_ptr, &size, EncodedData);
+      cuGraphicsResourceGetMappedPointer(&EncodedDataOffsets_ptr, &size, EncodedDataOffsets);
+      cuGraphicsResourceGetMappedPointer(&EncodedDataSizes_ptr, &size, EncodedDataSizes);
+      cuGraphicsResourceGetMappedPointer(&SeparateData_ptr, &size, SeparateData);
+      cuGraphicsResourceGetMappedPointer(&SeparateDataOffsets_ptr, &size, SeparateDataOffsets);
+      cuGraphicsResourceGetMappedPointer(&SeparateDataSizes_ptr, &size, SeparateDataSizes);
+      cuGraphicsResourceGetMappedPointer(&DecoderTableValues_ptr, &size, DecoderTableValues);
+      cuGraphicsResourceGetMappedPointer(&DecoderTableCWLen_ptr, &size, DecoderTableCWLen);
+      cuGraphicsResourceGetMappedPointer(&Colors_ptr, &size, Colors);
+    }
 
     // RENDER
     {
