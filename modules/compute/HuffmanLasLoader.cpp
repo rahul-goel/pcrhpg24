@@ -134,7 +134,7 @@ void HuffmanLasData::unload(Renderer *renderer) {
 void HuffmanLasData::process(Renderer *renderer) {
   if (this->task) {
     BatchDumpData bdd;
-    bdd.read_buffer(this->task->buffer);
+    bdd.read_buffer(*this->task->buffer);
     int64_t numPointsInBatch = bdd.num_points;
 
     // arrange batch data
