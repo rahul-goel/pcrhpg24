@@ -133,7 +133,6 @@ void kernel(const ChangingRenderData data,
     float y = (float) Y * uScale.y + uOffset.y - uboxMin.y;
     float z = (float) Z * uScale.z + uOffset.z - uboxMin.z;
     float3 point = make_float3(x, y, z);
-    // if (batchIndex == 0 && threadIdx.x == 0 && i == 0) printf("%d %d %d\n", X, Y, Z);
 
     rasterize(data, framebuffer, point, pointIndex);
   }
