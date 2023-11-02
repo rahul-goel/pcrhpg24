@@ -22,8 +22,10 @@ void test_huffman(string T_str, string udtype_str, int num_points) {
 
   Huffman<T> hfmn;
   hfmn.calculate_frequencies(data);
+  hfmn.constraint_table_size(4096);
   hfmn.generate_huffman_tree();
   hfmn.create_dictionary();
+  hfmn.clear_huffman_tree();
 
   auto collapsed_dict = hfmn.template get_collapsed_dictionary<udtype>();
   vector<pair<T,int>> decoder_table = hfmn.get_gpu_huffman_table();
@@ -53,8 +55,10 @@ void multithreaded_huffman(string T_str, string udtype_str, int num_points) {
 
   Huffman<T> hfmn;
   hfmn.calculate_frequencies(data);
+  hfmn.constraint_table_size(4096);
   hfmn.generate_huffman_tree();
   hfmn.create_dictionary();
+  hfmn.clear_huffman_tree();
 
   auto collapsed_dict = hfmn.template get_collapsed_dictionary<udtype>();
   vector<pair<T,int>> decoder_table = hfmn.get_gpu_huffman_table();
