@@ -28,10 +28,10 @@ void HuffmanLasData::load(Renderer *renderer) {
   { // create buffers
     this->BatchData             = renderer->createBuffer(GPUBatchSize * numBatches);
     this->StartValues           = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 3 * 4);
-    this->EncodedData           = renderer->createBuffer(this->numPoints * 4);
+    this->EncodedData           = renderer->createBuffer(this->encodedBytes);
     this->EncodedDataOffsets    = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 4);
     this->EncodedDataSizes      = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 4);
-    this->SeparateData          = renderer->createBuffer(this->numPoints * 4);
+    this->SeparateData          = renderer->createBuffer(this->separateBytes);
     this->SeparateDataOffsets   = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 4);
     this->SeparateDataSizes     = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 4);
     this->Colors                = renderer->createBuffer(this->numPoints * 4);
@@ -58,7 +58,7 @@ void HuffmanLasData::load(Renderer *renderer) {
     int batchesRemaining = ref->numBatches;
     int batchesRead = 0;
 
-    while (batchesRemaining) {
+    while (batchesRemaining > 0) {
       { // abort loader thread if state is set to unloading
         lock_guard<mutex> lock(huffman_mtx_state);
         if (ref->state == ResourceState::UNLOADING) {
@@ -88,7 +88,10 @@ void HuffmanLasData::load(Renderer *renderer) {
       ref->task = task;
       batchesRemaining -= 1;
       batchesRead += 1;
-      cout << "Read " << batchesRead << " batches" << endl;
+
+      Debug::set("numBatchesRead", formatNumber(batchesRead));
+      Debug::set("batchesRemaining", formatNumber(batchesRemaining));
+      // cout << "Read " << batchesRead << " batches" << endl;
     }
 
     { // check if resource was marked as unloading in the meantime
@@ -196,7 +199,6 @@ void HuffmanLasData::process(Renderer *renderer) {
     }
     { // start values
       auto &arr = bdd.start_values;
-      cout << "start_values size " << arr.size() << endl;
       size_t offset = this->task->batchIdx * WORKGROUP_SIZE * 3 * sizeof(arr[0]);
       size_t size = arr.size() * sizeof(arr[0]);
       glNamedBufferSubData(this->StartValues.handle, offset, size, arr.data());
@@ -247,9 +249,11 @@ void HuffmanLasData::process(Renderer *renderer) {
     }
 
     // reset the task pointer so that the reader thread can fill it
-    cout << "Processed " << this->numBatchesLoaded + 1 << " Batches" << endl;
+    // cout << "Processed " << this->numBatchesLoaded + 1 << " Batches" << endl;
     this->numBatchesLoaded += 1;
     this->numPointsLoaded += numPointsInBatch;
     this->task = nullptr;
+    Debug::set("numBatchesLoaded", formatNumber(this->numBatchesLoaded));
+    Debug::set("numPointsLoaded", formatNumber(this->numPointsLoaded));
   }
 }

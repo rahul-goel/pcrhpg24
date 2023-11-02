@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <string>
 #include <future>
 #include <queue>
@@ -20,10 +21,11 @@ using glm::ivec3;
 #define TARGET_START_RGBA TARGET_START_Z + 4
 #define TARGET_SZ         4 * 4
 
-#define HUFFMAN_LEAF_COUNT 128
+int NUM_CORES = 0;
 
 struct LasPoints{
 	shared_ptr<Buffer> buffer;
+  int64_t fullNumPoints;
 	int64_t numPoints;
   dvec3 c_scale;
   dvec3 c_offset;
@@ -112,6 +114,7 @@ struct LasLoader{
 		LasPoints laspoints;
 		laspoints.buffer = targetBuffer;
 		laspoints.numPoints = batchSize_points;
+    laspoints.fullNumPoints = numPoints;
     laspoints.c_scale = c_scale;
     laspoints.c_offset = c_offset;
     laspoints.c_min = c_min;
@@ -301,6 +304,29 @@ struct Chain {
     }
     return new_size;
   }
+
+  int64_t get_encoded_num_bytes() {
+    int64_t ret = 0;
+    if (method == full_huffman) {
+      if (encoded.size())
+        ret = encoded.size() * sizeof(encoded[0]);
+    } else if (method == clipped_huffman) {
+      if (encoded_markus.first.size())
+        ret = encoded_markus.first.size() * sizeof(encoded_markus.first[0]);
+    }
+    return ret;
+  }
+
+  int64_t get_separate_num_bytes() {
+    int64_t ret = 0;
+    if (method == full_huffman) {
+      ret = 0;
+    } else if (method == clipped_huffman) {
+      if (encoded_markus.second.size())
+        ret = encoded_markus.second.size() * sizeof(encoded_markus.second[0]);
+    }
+    return ret;
+  }
 };
 
 struct Batch {
@@ -313,6 +339,9 @@ struct Batch {
 
   int32_t bbox_min[3];
   int32_t bbox_max[3];
+
+  int64_t encoding_bytes = 0;
+  int64_t separate_bytes = 0;
 
   Batch(int point_offset, int num_points, method_type method,
         vector<int32_t>::iterator x_begin, vector<int32_t>::iterator x_end,
@@ -336,6 +365,7 @@ struct Batch {
   void calculate() {
     // calculate bbox
     for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+      if (chains[i].num_points == 0) continue;
       chains[i].calculate_bbox();
     }
     for (int j = 0; j < 3; ++j) {
@@ -343,6 +373,7 @@ struct Batch {
       bbox_max[j] = chains[0].bbox_max[j];
     }
     for (int i = 1; i < WORKGROUP_SIZE; ++i) {
+      if (chains[i].num_points == 0) continue;
       for (int j = 0; j < 3; ++j) {
         bbox_min[j] = min(bbox_min[j], chains[i].bbox_min[j]);
         bbox_max[j] = max(bbox_max[j], chains[i].bbox_max[j]);
@@ -351,6 +382,7 @@ struct Batch {
 
     vector<int32_t> all_deltas;
     for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+      if (chains[i].num_points == 0) continue;
       chains[i].calculate_deltas();
       chains[i].interleave();
       all_deltas.insert(all_deltas.end(), chains[i].delta_interleaved.begin(), chains[i].delta_interleaved.end());
@@ -358,10 +390,13 @@ struct Batch {
 
     hfmn = Huffman<int32_t>();
     hfmn.calculate_frequencies(all_deltas);
-    if (method == clipped_huffman)
-      hfmn.clip_to_top(HUFFMAN_LEAF_COUNT);
+    if (method == clipped_huffman) {
+      // hfmn.clip_to_top(HUFFMAN_LEAF_COUNT);
+      hfmn.constraint_table_size(HUFFMAN_TABLE_SIZE);
+    }
     hfmn.generate_huffman_tree();
     hfmn.create_dictionary();
+    hfmn.clear_huffman_tree();
 
     float old_size = 0;
     float new_size = 0;
@@ -373,6 +408,17 @@ struct Batch {
       old_size += chains[i].get_og_size();
       new_size += chains[i].get_compressed_size();
     }
+
+    // calculate the number of bytes occupied
+    if (method == clipped_huffman) {
+      encoding_bytes = 0;
+      separate_bytes = 0;
+      for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+        encoding_bytes += chains[i].get_encoded_num_bytes();
+        separate_bytes += chains[i].get_separate_num_bytes();
+      }
+    }
+
     // add huffman size
     auto decoder_table = hfmn.get_gpu_huffman_table();
     for (auto &[symbol, cw_len] : decoder_table) {
@@ -383,29 +429,18 @@ struct Batch {
   }
 };
 
-int main(int argc, char *argv[]) {
-  // parse command line arguments
-  assert(argc == 3); // program name, input file, output file
+struct Chunk {
+  int64_t num_points;
+  int64_t encoding_bytes = 0;
+  int64_t separate_bytes = 0;
+  vector<int64_t> batch_data_sizes;
+  vector<char> dump_buffer;
+};
 
-  vector<string> all_args;
-  if (argc > 1) {
-    all_args.assign(argv + 1, argv + argc);
-  }
-  string LASFILE = all_args[0];
-  string OUTFILE = all_args[1];
+Chunk process_chunk(string filename, long long start_idx, long long wanted_points, bool sort) {
+  auto las = LasLoader::loadSync(filename, start_idx, wanted_points);
 
-  auto las = LasLoader::loadSync(LASFILE, 0, 1e8);
-
-  int64_t num_points = las.numPoints;
-
-  // let's shift by the min value in the las file
-  // reverse the operations to conver to an integer
-  int32_t las_min[3] = {
-    int32_t((float) las.c_min.x / (float) las.c_scale.x),
-    int32_t((float) las.c_min.y / (float) las.c_scale.y),
-    int32_t((float) las.c_min.z / (float) las.c_scale.z)
-  };
-  cout << "las_min " << las_min[0] << " " << las_min[1] << " " << las_min[2] << endl;
+  int64_t num_points = wanted_points;
 
   // read the original data
   vector<int32_t> actual_x(num_points), actual_y(num_points), actual_z(num_points);
@@ -414,28 +449,25 @@ int main(int argc, char *argv[]) {
     actual_x[i] = las.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_X);
     actual_y[i] = las.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_Y);
     actual_z[i] = las.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_Z);
-    // actual_x[i] -= las_min[0];
-    // actual_y[i] -= las_min[1];
-    // actual_z[i] -= las_min[2];
 
     actual_color[i] = las.buffer->get<uint32_t>(TARGET_SZ * i +  TARGET_START_RGBA);
   }
   cout << "Collected Original Data" << endl;
 
   // sort by morton order
-  {
-    // auto morton_order = mymorton::get_morton_order(actual_x, actual_y, actual_z);
-    // vector<int32_t> tmp;
-    // tmp = actual_x;
-    // for (int i = 0; i < morton_order.size(); ++i) actual_x[i] = tmp[morton_order[i]];
-    // tmp = actual_y;
-    // for (int i = 0; i < morton_order.size(); ++i) actual_y[i] = tmp[morton_order[i]];
-    // tmp = actual_z;
-    // for (int i = 0; i < morton_order.size(); ++i) actual_z[i] = tmp[morton_order[i]];
+  if (sort) {
+    auto morton_order = mymorton::get_morton_order(actual_x, actual_y, actual_z);
+    vector<int32_t> tmp;
+    tmp = actual_x;
+    for (int i = 0; i < morton_order.size(); ++i) actual_x[i] = tmp[morton_order[i]];
+    tmp = actual_y;
+    for (int i = 0; i < morton_order.size(); ++i) actual_y[i] = tmp[morton_order[i]];
+    tmp = actual_z;
+    for (int i = 0; i < morton_order.size(); ++i) actual_z[i] = tmp[morton_order[i]];
 
-    // vector<uint32_t> c_tmp = actual_color;
-    // for (int i = 0; i < morton_order.size(); ++i) actual_color[i] = c_tmp[morton_order[i]];
-    // cout << "Sorted Points" << endl;
+    vector<uint32_t> c_tmp = actual_color;
+    for (int i = 0; i < morton_order.size(); ++i) actual_color[i] = c_tmp[morton_order[i]];
+    cout << "Sorted Points" << endl;
   }
 
   // divide into batches
@@ -460,7 +492,7 @@ int main(int argc, char *argv[]) {
   queue<future<void>> futures;
   int processed = 0;
   for (int i = 0; i < batches.size(); ++i) {
-    while (futures.size() >= 8) {
+    while (futures.size() >= NUM_CORES) {
       futures.front().get();
       futures.pop();
       processed += 1;
@@ -481,13 +513,34 @@ int main(int argc, char *argv[]) {
   }
   cout << "Huffman Encoding done" << endl;
 
+  float compression_ratio = 0;
+  for (auto &batch : batches) {
+    compression_ratio += batch.compression_ratio;
+  }
+  compression_ratio /= batches.size();
+  cout << "Compression Ratio: " << compression_ratio << endl;
+
+  // sum up encoding, separate bytes
+  int64_t encoding_bytes = 0;
+  int64_t separate_bytes = 0;
+  for (int i = 0; i < batches.size(); ++i) {
+    encoding_bytes += batches[i].encoding_bytes;
+    separate_bytes += batches[i].separate_bytes;
+  }
+
+
   // convert Batch to BatchDumpData
   int64_t processed_points = 0;
 
-  // main header
-  vector<int64_t> batch_data_sizes(batches.size());
+  // this chunk
+  Chunk chunk;
+  chunk.num_points = num_points;
+  chunk.encoding_bytes = encoding_bytes;
+  chunk.separate_bytes = separate_bytes;
+  vector<char> &dump_buffer = chunk.dump_buffer;
+  vector<int64_t> &batch_data_sizes = chunk.batch_data_sizes;
+  batch_data_sizes.resize(batches.size());
 
-  vector<char> dump_buffer((batches.size() + 2) * 8, 0);
   dump_buffer.reserve(num_points * 10);
 
   { // printing for debugging
@@ -590,10 +643,289 @@ int main(int argc, char *argv[]) {
     processed_points += b.num_points;
   }
 
-  int64_t num_batches = batches.size();
+  return chunk;
+}
+
+int main(int argc, char *argv[]) {
+  // parse command line arguments
+  assert(argc == 5); // program name, input file, output file
+
+  vector<string> all_args;
+  if (argc > 1) {
+    all_args.assign(argv + 1, argv + argc);
+  }
+  string LASFILE = all_args[0];
+  string OUTFILE = all_args[1];
+  bool should_sort = (bool) stoi(all_args[2]);
+  NUM_CORES = stoi(all_args[3]);
+
+  auto las = LasLoader::loadSync(LASFILE, 0, 100);
+  int64_t num_points = las.fullNumPoints;
+  int64_t num_batches = 0;
+  int64_t encoding_bytes = 0;
+  int64_t separate_bytes = 0;
+
+  // divide into chunks to load
+  vector<pair<int64_t, int64_t>> chunk_division;
+  for (int start_idx = 0; start_idx < num_points; start_idx += 5 * MAX_POINTS_PER_BATCH) {
+    int64_t num_points_in_chunk = min((int64_t) 5 * MAX_POINTS_PER_BATCH, num_points - start_idx);
+    chunk_division.push_back({start_idx, num_points_in_chunk});
+
+    vector<pair<int,int>> batch_parameters = get_batch_parameters(num_points_in_chunk);
+    num_batches += batch_parameters.size();
+  }
+
+  cout << "Number of Points: " << num_points << endl;
+  cout << "Number of Batches: " << num_batches << endl;
+
+  // declare the dump buffer
+  int64_t header_num_ints = 4 + num_batches;
+  vector<char> dump_buffer(header_num_ints * 8, 0);
+  dump_buffer.reserve(num_points * 10);
+  int64_t offset = 32;
+
+  vector<int64_t> tmp;
+  for (int64_t cid = 0; cid < chunk_division.size(); ++cid) {
+    auto &[start_idx, num_points_in_chunk] = chunk_division[cid];
+    Chunk chunk = process_chunk(LASFILE, start_idx, num_points_in_chunk, should_sort);
+
+    encoding_bytes += chunk.encoding_bytes;
+    separate_bytes += chunk.separate_bytes;
+
+    dump_buffer.insert(dump_buffer.end(), chunk.dump_buffer.begin(), chunk.dump_buffer.end());
+    memcpy(dump_buffer.data() + offset, chunk.batch_data_sizes.data(), chunk.batch_data_sizes.size() * 8);
+    offset += chunk.batch_data_sizes.size() * 8;
+    cout << cid << " " << chunk_division.size() << endl;
+  }
+
   memcpy(dump_buffer.data() + 0, &num_points, 8);
   memcpy(dump_buffer.data() + 8, &num_batches, 8);
-  memcpy(dump_buffer.data() + 16, batch_data_sizes.data(), batch_data_sizes.size() * 8);
+  memcpy(dump_buffer.data() + 16, &encoding_bytes, 8);
+  memcpy(dump_buffer.data() + 24, &separate_bytes, 8);
   writeBinaryFile(OUTFILE, dump_buffer);
+
+  cout << num_points << " " << num_batches << endl;
+  for (auto &x : tmp) cout << x << " ";
+  cout << endl;
+
   return 0;
 }
+
+// int old_main(int argc, char *argv[]) {
+// // int main(int argc, char *argv[]) {
+//   // parse command line arguments
+//   assert(argc == 4); // program name, input file, output file
+
+//   vector<string> all_args;
+//   if (argc > 1) {
+//     all_args.assign(argv + 1, argv + argc);
+//   }
+//   string LASFILE = all_args[0];
+//   string OUTFILE = all_args[1];
+
+//   auto las = LasLoader::loadSync(LASFILE, 0, POINTS_PER_WORKGROUP + 81);
+
+//   int64_t num_points = las.numPoints;
+
+//   // let's shift by the min value in the las file
+//   // reverse the operations to conver to an integer
+//   int32_t las_min[3] = {
+//     int32_t((float) las.c_min.x / (float) las.c_scale.x),
+//     int32_t((float) las.c_min.y / (float) las.c_scale.y),
+//     int32_t((float) las.c_min.z / (float) las.c_scale.z)
+//   };
+//   cout << "las_min " << las_min[0] << " " << las_min[1] << " " << las_min[2] << endl;
+
+//   // read the original data
+//   vector<int32_t> actual_x(num_points), actual_y(num_points), actual_z(num_points);
+//   vector<uint32_t> actual_color(num_points);
+//   for (int i = 0; i < num_points; ++i) {
+//     actual_x[i] = las.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_X);
+//     actual_y[i] = las.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_Y);
+//     actual_z[i] = las.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_Z);
+//     // actual_x[i] -= las_min[0];
+//     // actual_y[i] -= las_min[1];
+//     // actual_z[i] -= las_min[2];
+
+//     actual_color[i] = las.buffer->get<uint32_t>(TARGET_SZ * i +  TARGET_START_RGBA);
+//   }
+//   cout << "Collected Original Data" << endl;
+
+//   // sort by morton order
+//   {
+//     // auto morton_order = mymorton::get_morton_order(actual_x, actual_y, actual_z);
+//     // vector<int32_t> tmp;
+//     // tmp = actual_x;
+//     // for (int i = 0; i < morton_order.size(); ++i) actual_x[i] = tmp[morton_order[i]];
+//     // tmp = actual_y;
+//     // for (int i = 0; i < morton_order.size(); ++i) actual_y[i] = tmp[morton_order[i]];
+//     // tmp = actual_z;
+//     // for (int i = 0; i < morton_order.size(); ++i) actual_z[i] = tmp[morton_order[i]];
+
+//     // vector<uint32_t> c_tmp = actual_color;
+//     // for (int i = 0; i < morton_order.size(); ++i) actual_color[i] = c_tmp[morton_order[i]];
+//     // cout << "Sorted Points" << endl;
+//   }
+
+//   // divide into batches
+//   vector<pair<int,int>> batch_configuration = get_batch_parameters(num_points);
+//   vector<Batch> batches;
+//   for (auto &[start_point, size] : batch_configuration) {
+//     auto begin_x = actual_x.begin() + start_point;
+//     auto begin_y = actual_y.begin() + start_point;
+//     auto begin_z = actual_z.begin() + start_point;
+//     auto end_x = actual_x.begin() + start_point + size;
+//     auto end_y = actual_y.begin() + start_point + size;
+//     auto end_z = actual_z.begin() + start_point + size;
+
+//     batches.push_back(Batch(start_point, size, clipped_huffman,
+//                             actual_x.begin() + start_point, actual_x.begin() + start_point + size,
+//                             actual_y.begin() + start_point, actual_y.begin() + start_point + size,
+//                             actual_z.begin() + start_point, actual_z.begin() + start_point + size));
+//   }
+//   cout << "Divided into Batches" << endl;
+
+//   // calculate huffman encoding for each batch
+//   queue<future<void>> futures;
+//   int processed = 0;
+//   for (int i = 0; i < batches.size(); ++i) {
+//     while (futures.size() >= 8) {
+//       futures.front().get();
+//       futures.pop();
+//       processed += 1;
+//       printf("\r%f", (float) processed / batches.size());
+//       fflush(stdout);
+//     }
+
+//     auto lambda = [&batches, i] {
+//       batches[i].calculate();
+//     };
+//     futures.push(async(launch::async, lambda));
+//   }
+//   cout << endl;
+
+//   while (futures.size() > 0) {
+//     futures.front().get();
+//     futures.pop();
+//   }
+//   cout << "Huffman Encoding done" << endl;
+
+//   // convert Batch to BatchDumpData
+//   int64_t processed_points = 0;
+
+//   // main header
+//   vector<int64_t> batch_data_sizes(batches.size());
+
+//   vector<char> dump_buffer((batches.size() + 2) * 8, 0);
+//   dump_buffer.reserve(num_points * 10);
+
+//   { // printing for debugging
+//     /*
+//     for (int bid = 0; bid < batches.size(); ++bid) {
+//       auto &b = batches[bid];
+//       cout << endl;
+//       cout << bid << endl;
+//       cout << b.bbox_min[0] << " " << b.bbox_min[1] << " " << b.bbox_min[2] << endl;
+//       cout << b.bbox_max[0] << " " << b.bbox_max[1] << " " << b.bbox_max[2] << endl;
+//       cout << las.c_scale.x << " " << las.c_scale.y << " " << las.c_scale.z << endl;
+//       cout << las.c_offset.x << " " << las.c_offset.y << " " << las.c_offset.z << endl;
+//       cout << endl;
+//     }
+//     */
+//   }
+
+//   for (int bid = 0; bid < batches.size(); ++bid) {
+//     BatchDumpData bdd;
+//     Batch &b = batches[bid];
+
+//     // header data
+//     bdd.point_offset = processed_points;
+//     bdd.num_points = b.num_points;
+//     bdd.num_threads = WORKGROUP_SIZE;
+//     bdd.points_per_thread = POINTS_PER_THREAD;
+
+//     bdd.las_scale[0] = las.c_scale.x;
+//     bdd.las_scale[1] = las.c_scale.y;
+//     bdd.las_scale[2] = las.c_scale.z;
+//     bdd.las_offset[0] = las.c_offset.x;
+//     bdd.las_offset[1] = las.c_offset.y;
+//     bdd.las_offset[2] = las.c_offset.z;
+
+//     bdd.las_min[0] = (float) las.c_min.x;
+//     bdd.las_min[1] = (float) las.c_min.y;
+//     bdd.las_min[2] = (float) las.c_min.z;
+//     bdd.las_max[0] = (float) las.c_max.x;
+//     bdd.las_max[1] = (float) las.c_max.y;
+//     bdd.las_max[2] = (float) las.c_max.z;
+
+//     bdd.bbox_min[0] = float(b.bbox_min[0]) * las.c_scale.x + las.c_offset.x;
+//     bdd.bbox_min[1] = float(b.bbox_min[1]) * las.c_scale.y + las.c_offset.y;
+//     bdd.bbox_min[2] = float(b.bbox_min[2]) * las.c_scale.z + las.c_offset.z;
+//     bdd.bbox_max[0] = float(b.bbox_max[0]) * las.c_scale.x + las.c_offset.x;
+//     bdd.bbox_max[1] = float(b.bbox_max[1]) * las.c_scale.y + las.c_offset.y;
+//     bdd.bbox_max[2] = float(b.bbox_max[2]) * las.c_scale.z + las.c_offset.z;
+
+//     // start values
+//     bdd.start_values.resize(WORKGROUP_SIZE * 3);
+//     for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+//       bdd.start_values[i * 3 + 0] = b.chains[i].start_xyz[0];
+//       bdd.start_values[i * 3 + 1] = b.chains[i].start_xyz[1];
+//       bdd.start_values[i * 3 + 2] = b.chains[i].start_xyz[2];
+//     }
+
+//     // encoding
+//     bdd.encoding_offsets.resize(WORKGROUP_SIZE);
+//     bdd.encoding_sizes.resize(WORKGROUP_SIZE);
+//     for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+//       auto &src = b.chains[i].encoded_markus.first;
+//       auto &dst = bdd.encoding;
+//       bdd.encoding_offsets[i] = dst.size();
+//       dst.insert(dst.end(), src.begin(), src.end());
+//       bdd.encoding_sizes[i] = dst.size() - bdd.encoding_offsets[i];
+//     }
+
+//     // separate
+//     bdd.separate_offsets.resize(WORKGROUP_SIZE);
+//     bdd.separate_sizes.resize(WORKGROUP_SIZE);
+//     for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+//       auto &src = b.chains[i].encoded_markus.second;
+//       auto &dst = bdd.separate;
+//       bdd.separate_offsets[i] = dst.size();
+//       dst.insert(dst.end(), src.begin(), src.end());
+//       bdd.separate_sizes[i] = dst.size() - bdd.separate_offsets[i];
+//     }
+
+//     // TODO: color
+//     bdd.color.resize(bdd.num_points);
+//     for (int i = 0; i < b.num_points; ++i) {
+//       bdd.color[i] = actual_color[b.point_offset + i];
+//     }
+
+//     // decoder table
+//     auto decoder_table = b.hfmn.get_gpu_huffman_table();
+//     int dt_size = decoder_table.size();
+//     bdd.decoder_values.resize(dt_size);
+//     bdd.decoder_cw_len.resize(dt_size);
+//     bdd.dt_size = dt_size;
+//     for (int i = 0; i < dt_size; ++i) {
+//       bdd.decoder_values[i] = decoder_table[i].first;
+//       bdd.decoder_cw_len[i] = decoder_table[i].second;
+//     }
+
+//     // dump
+//     vector<char> bdd_buffer = bdd.get_buffer();
+//     batch_data_sizes[bid] = bdd_buffer.size();
+//     dump_buffer.insert(dump_buffer.end(), bdd_buffer.begin(), bdd_buffer.end());
+//     processed_points += b.num_points;
+//   }
+
+//   int64_t num_batches = batches.size();
+//   memcpy(dump_buffer.data() + 0, &num_points, 8);
+//   memcpy(dump_buffer.data() + 8, &num_batches, 8);
+//   memcpy(dump_buffer.data() + 16, batch_data_sizes.data(), batch_data_sizes.size() * 8);
+//   writeBinaryFile(OUTFILE, dump_buffer);
+//   cout << num_points << " " << num_batches << endl;
+//   for (auto &x : batch_data_sizes) cout << x << " ";
+//   cout << endl;
+//   return 0;
+// }

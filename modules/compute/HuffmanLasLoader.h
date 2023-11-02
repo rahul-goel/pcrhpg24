@@ -19,6 +19,8 @@ struct HuffmanLasData : public Resource {
   bool      headerLoaded                = false;
   int64_t   numBatches                  = 0;
   int64_t   numPoints                   = 0;
+  int64_t   encodedBytes                = 0;
+  int64_t   separateBytes                = 0;
 
   vector<int64_t> batch_data_sizes;
   vector<int64_t> batch_data_sizes_prefix;
@@ -50,10 +52,12 @@ struct HuffmanLasData : public Resource {
   void loadHeader() {
     // read the number of batches
     auto file_offset = 0;
-    auto firstWordBuffer = readBinaryFile(this->path, file_offset, 16);
+    auto firstWordBuffer = readBinaryFile(this->path, file_offset, 32);
     this->numPoints = firstWordBuffer->get<int64_t>(0);
     this->numBatches = firstWordBuffer->get<int64_t>(8);
-    file_offset += 16;
+    this->encodedBytes = firstWordBuffer->get<int64_t>(16);
+    this->separateBytes = firstWordBuffer->get<int64_t>(24);
+    file_offset += 32;
     
     // read the batch chunk sizes
     auto batch_data_sizes_buffer = readBinaryFile(this->path, file_offset, 8 * this->numBatches);
