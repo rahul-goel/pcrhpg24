@@ -1,3 +1,5 @@
+#define SHARED_DTABLE
+
 #include "huffman_kernel_data.h"
 #include "helper_math.h"
 // #include "compute_loop_las_cuda/kernel_data.h"
@@ -158,7 +160,6 @@ void kernel(const ChangingRenderData            cdata,
                     unsigned int                *Colors
                     ) {
   
-  // printf("%d %d\n", blockIdx.x, gridDim.x);
   unsigned int batchIndex = blockIdx.x;
   unsigned int numPointsPerBatch = blockDim.x * cdata.uPointsPerThread;
   unsigned int wgFirstPoint = batchIndex * numPointsPerBatch;
@@ -166,8 +167,6 @@ void kernel(const ChangingRenderData            cdata,
 
   // right now we dont want to deal with the edge case of last batch
 	if (blockIdx.x == gridDim.x - 1) return;
-
-  // if (blockIdx.x > 500) return;
 
   // batch meta data
   GPUBatch batch = BatchData[batchIndex];
@@ -178,11 +177,11 @@ void kernel(const ChangingRenderData            cdata,
 
 
   // frustum cull if enabled
-  // float3 batchMin = make_float3(batch.min_x, batch.min_y, batch.min_z);
-  // float3 batchMax = make_float3(batch.min_x, batch.min_y, batch.min_z);
-  // if (cdata.uEnableFrustumCulling && !intersectsFrustum(cdata, batchMin, batchMax)) {
-  //   return;
-  // }
+  float3 batchMin = make_float3(batch.min_x, batch.min_y, batch.min_z) - las_min;
+  float3 batchMax = make_float3(batch.min_x, batch.min_y, batch.min_z) - las_min;
+  if (cdata.uEnableFrustumCulling && !intersectsFrustum(cdata, batchMin, batchMax)) {
+    return;
+  }
 
   int3 prev_values = make_int3(StartValues[globalThreadIdx * 3 + 0],
                                StartValues[globalThreadIdx * 3 + 1],
@@ -202,6 +201,17 @@ void kernel(const ChangingRenderData            cdata,
   unsigned int window, key;
   unsigned int mask = ((1 << max_cw_size) - 1) << (32 - max_cw_size);
 
+#ifdef SHARED_DTABLE
+  __shared__ int Shared_DecoderTableValues[4096];
+  __shared__ unsigned char Shared_DecoderTableCWLen[4096];
+  for (int i = 0; i < (1 << batch.max_cw_len) / blockDim.x; ++i) {
+    int idx = i * blockDim.x + threadIdx.x;
+    Shared_DecoderTableValues[idx] = DecoderTableValues[DCO + idx];
+    Shared_DecoderTableCWLen[idx] = DecoderTableCWLen[DCO + idx];
+  }
+  __syncthreads();
+#endif
+
 
   // TODO - if using, correct it using EncodedPtr, SeparatePtr
   // int EDS = EncodedDataSizes[globalThreadIdx];
@@ -217,9 +227,15 @@ void kernel(const ChangingRenderData            cdata,
       key = (window & mask) >> (32 - max_cw_size);
 
       if ((key >> (max_cw_size - 1)) & 1) {
+#ifdef SHARED_DTABLE
+        int DT_lookup = (key - (1 << (max_cw_size - 1)));
+        int symbol = Shared_DecoderTableValues[DT_lookup];
+        int cw_size = 1 + Shared_DecoderTableCWLen[DT_lookup];
+#else
         int DT_lookup = DCO + (key - (1 << (max_cw_size - 1)));
         int symbol = DecoderTableValues[DT_lookup];
         int cw_size = 1 + DecoderTableCWLen[DT_lookup];
+#endif
 
         decoded[j] = symbol;
         int min_bits = min(cw_size, cur_bits);
@@ -245,73 +261,10 @@ void kernel(const ChangingRenderData            cdata,
     int3 cur_values = make_int3(decoded[0] + prev_values.x,
                                 decoded[1] + prev_values.y,
                                 decoded[2] + prev_values.z);
-    // if (threadIdx.x == 0)
-    //   printf("Which all blocks are reaching here? %d\n", blockIdx.x);
-    // if (threadIdx.x == blockDim.x - 1 and blockIdx.x == 2)
-    //   printf("%u %d %d %d\n", pointIndex, cur_values.x, cur_values.y, cur_values.z);
 
     float3 cur_xyz = make_float3(cur_values.x, cur_values.y, cur_values.z) * las_scale + las_offset - las_min;
-
-    // if (pointIndex == 10240 - 1) {
-      // printf("blockIdx %d threadIdx %d loopidx %d globalthreadIdx %d\n", blockIdx.x, threadIdx.x, i, globalThreadIdx);
-      // printf("EncodedDataOffsets %lld\n", EncodedDataOffsets[globalThreadIdx] + EncodedPtr);
-      // printf("EncodedData %u\n", EncodedData[EncodedDataOffsets[globalThreadIdx] + EncodedPtr]);
-      // printf("prev_values %d %d %d\n", prev_values.x, prev_values.y, prev_values.z);
-      // printf("cur_values %d %d %d\n", cur_values.x, cur_values.y, cur_values.z);
-      // printf("decoded %d %d %d\n", decoded[0], decoded[1], decoded[2]);
-      // printf("huffman xyz %f %f %f color %u\n", cur_xyz.x, cur_xyz.y, cur_xyz.z, Colors[pointIndex]);
-    // }
-
     prev_values = cur_values;
 
     rasterize(cdata, framebuffer, cur_xyz, pointIndex);
   }
-
 }
-
-// rendering kernel
-// extern "C" __global__
-// void kernel_old(const ChangingRenderData data,
-//             unsigned long long int *framebuffer,
-//             XYZBatch *batches,
-//             int *ssXyz,
-//             unsigned int *rgba) {
-//   unsigned int batchIndex = blockIdx.x;
-//   unsigned int numPointerPerBatch = data.uPointsPerThread * blockDim.x;
-//   unsigned int wgFirstPoint = batchIndex * numPointerPerBatch;
-
-//   // read bounding box data
-//   XYZBatch batch = batches[batchIndex];
-// 	float3 wgMin = make_float3(batch.min_x, batch.min_y, batch.min_z);
-// 	float3 wgMax = make_float3(batch.max_x, batch.max_y, batch.max_z);
-// 	float3 boxSize = wgMax - wgMin;
-//   float3 wgScale = make_float3(batch.scale_x, batch.scale_y, batch.scale_z);
-//   float3 wgOffset = make_float3(batch.offset_x, batch.offset_y, batch.offset_z);
-//   float3 uboxMin = data.uBoxMin;
-//   float3 uScale = data.uScale;
-//   float3 uOffset = data.uBoxMax;
-
-//   // frustum cull using bounding box
-// 	if((data.uEnableFrustumCulling != 0) && !intersectsFrustum(data, wgMin, wgMax)){
-// 		return;
-// 	}
-
-//   // why are we doing this?
-// 	if (blockIdx.x == gridDim.x - 1) return;
-
-// 	int loopSize = data.uPointsPerThread;	
-//   for (int i = 0; i < loopSize; ++i) {
-//     unsigned int pointIndex = wgFirstPoint + i * blockDim.x + threadIdx.x;
-//     int X = ssXyz[pointIndex * 3 + 0];
-//     int Y = ssXyz[pointIndex * 3 + 1];
-//     int Z = ssXyz[pointIndex * 3 + 2];
-
-//     float x = (float) X * uScale.x + uOffset.x - uboxMin.x;
-//     float y = (float) Y * uScale.y + uOffset.y - uboxMin.y;
-//     float z = (float) Z * uScale.z + uOffset.z - uboxMin.z;
-//     float3 point = make_float3(x, y, z);
-//     // if (batchIndex == 0 && threadIdx.x == 0 && i == 0) printf("%d %d %d\n", X, Y, Z);
-
-//     rasterize(data, framebuffer, point, pointIndex);
-//   }
-// }
