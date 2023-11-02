@@ -54,9 +54,9 @@ struct BatchDumpData {
     return total_size;
   }
 
-  void read_buffer(shared_ptr<Buffer> buffer) {
+  void read_buffer(Buffer &buffer) {
     size_t offset = 0;
-    auto buf_ptr = buffer->data_u8;
+    auto buf_ptr = buffer.data_u8;
 
     // Which point do I start at?
     memcpy(&point_offset, buf_ptr + offset, 4);
@@ -138,7 +138,7 @@ struct BatchDumpData {
     memcpy(color.data(), buf_ptr + offset, color.size() * 4);
     offset += 4 * color.size();
 
-    assert(offset == buffer->size);
+    assert(offset == buffer.size);
   }
 
   vector<char> get_buffer() {
