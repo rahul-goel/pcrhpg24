@@ -20,6 +20,7 @@ using namespace std;
 
 struct ComputeHuffman : public Method {
   bool registered = false;
+  bool mapped = false;
 
   CudaProgram* resolveProg = nullptr;
   CudaProgram* renderProg  = nullptr;
@@ -125,7 +126,7 @@ struct ComputeHuffman : public Method {
 
     if (renderProg->kernel == nullptr || resolveProg->kernel == nullptr) return;
     if (las->numPointsLoaded == 0) return;
-    // if (las->numPointsLoaded != las->numPoints) return;
+    if (las->numPointsLoaded != las->numPoints) return;
 
     // register the buffers to be used from cuda
     if (!registered) {
@@ -159,7 +160,7 @@ struct ComputeHuffman : public Method {
     }
 
     // get pointers for cuda pointers for the common buffers
-    if (las->numPointsLoaded < las->numPoints) {
+    if (not mapped or las->numPointsLoaded < las->numPoints) {
       size_t size;
       cuGraphicsResourceGetMappedPointer(&BatchData_ptr, &size, BatchData);
       cuGraphicsResourceGetMappedPointer(&StartValues_ptr, &size, StartValues);
@@ -172,6 +173,7 @@ struct ComputeHuffman : public Method {
       cuGraphicsResourceGetMappedPointer(&DecoderTableValues_ptr, &size, DecoderTableValues);
       cuGraphicsResourceGetMappedPointer(&DecoderTableCWLen_ptr, &size, DecoderTableCWLen);
       cuGraphicsResourceGetMappedPointer(&Colors_ptr, &size, Colors);
+      mapped = true;
     }
 
     // RENDER
