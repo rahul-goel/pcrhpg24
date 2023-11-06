@@ -139,6 +139,12 @@ void HuffmanLasData::process(Renderer *renderer) {
     BatchDumpData bdd;
     bdd.read_buffer(*this->task->buffer);
     int64_t numPointsInBatch = bdd.num_points;
+    // cout << "Encoded Sizes: ";
+    // for (auto &x : bdd.encoding_sizes) cout << x << " ";
+    // cout << endl;
+    // cout << "Separate Sizes: ";
+    // for (auto &x : bdd.separate_sizes) cout << x << " ";
+    // cout << endl;
 
     // arrange batch data
     GPUBatch batch;
