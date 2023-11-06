@@ -198,7 +198,6 @@ void kernel(const ChangingRenderData            cdata,
 
   int DCO = batch.decoder_table_offset;
   int cur_bits = 32;
-  unsigned int window, key;
   unsigned int mask = ((1 << max_cw_size) - 1) << (32 - max_cw_size);
 
 #ifdef SHARED_DTABLE
@@ -217,43 +216,43 @@ void kernel(const ChangingRenderData            cdata,
   // int EDS = EncodedDataSizes[globalThreadIdx];
   // int SDS = SeparateDataSizes[globalThreadIdx];
 
+  unsigned int CurHuffman = EncodedData[cur_ptr];
+  unsigned int NextHuffman = EncodedData[cur_ptr + 1];
+
   for (int i = 0; i < cdata.uPointsPerThread; ++i) {
     // decode the next delta value for X, Y and Z
     int decoded[3];
     for (int j = 0; j < 3; ++j) {
-      unsigned int L = cur_bits == 32 ? EncodedData[cur_ptr] : (EncodedData[cur_ptr] << (32 - cur_bits));
-      unsigned int R = cur_bits == 32 ? 0 : (EncodedData[cur_ptr + 1] >> cur_bits);
-      window = L | R;
-      key = (window & mask) >> (32 - max_cw_size);
+      unsigned int L = cur_bits == 32 ? CurHuffman : (CurHuffman << (32 - cur_bits));
+      unsigned int R = cur_bits == 32 ? 0 : (NextHuffman >> cur_bits);
+      unsigned int key = ((L|R) & mask) >> (32 - max_cw_size);
 
+      int cw_size;
       if ((key >> (max_cw_size - 1)) & 1) {
 #ifdef SHARED_DTABLE
         int DT_lookup = (key - (1 << (max_cw_size - 1)));
         int symbol = Shared_DecoderTableValues[DT_lookup];
-        int cw_size = 1 + Shared_DecoderTableCWLen[DT_lookup];
+        cw_size = 1 + Shared_DecoderTableCWLen[DT_lookup];
 #else
         int DT_lookup = DCO + (key - (1 << (max_cw_size - 1)));
         int symbol = DecoderTableValues[DT_lookup];
-        int cw_size = 1 + DecoderTableCWLen[DT_lookup];
+        cw_size = 1 + DecoderTableCWLen[DT_lookup];
 #endif
 
         decoded[j] = symbol;
-        int min_bits = min(cw_size, cur_bits);
-        cur_bits -= min_bits;
-        cw_size -= min_bits;
-        if (cw_size < cur_bits) {
-          cur_bits -= cw_size;
-        } else {
-          cur_ptr += 1;
-          cur_bits = cur_bits + 32 - cw_size;
-        }
+        cur_bits -= cw_size;
       } else {
         decoded[j] = SeparateData[sep_ptr++];
+        cw_size = 1;
         cur_bits -= 1;
-        if (cur_bits == 0) {
-          cur_ptr += 1;
-          cur_bits = 32;
-        }
+      }
+
+      // got over
+      if (cur_bits <= 0) {
+        cur_ptr += 1;
+        CurHuffman = NextHuffman;
+        NextHuffman = EncodedData[cur_ptr + 1];
+        cur_bits += 32;
       }
     }
 
