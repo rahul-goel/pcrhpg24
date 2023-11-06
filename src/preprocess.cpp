@@ -434,6 +434,7 @@ struct Chunk {
   int64_t encoding_bytes = 0;
   int64_t separate_bytes = 0;
   vector<int64_t> batch_data_sizes;
+  vector<float> compression_ratios;
   vector<char> dump_buffer;
 };
 
@@ -514,11 +515,10 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
   cout << "Huffman Encoding done" << endl;
 
   float compression_ratio = 0;
+  vector<float> compression_ratios;
   for (auto &batch : batches) {
-    compression_ratio += batch.compression_ratio;
+    compression_ratios.push_back(batch.compression_ratio);
   }
-  compression_ratio /= batches.size();
-  cout << "Compression Ratio: " << compression_ratio << endl;
 
   // sum up encoding, separate bytes
   int64_t encoding_bytes = 0;
@@ -537,6 +537,7 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
   chunk.num_points = num_points;
   chunk.encoding_bytes = encoding_bytes;
   chunk.separate_bytes = separate_bytes;
+  chunk.compression_ratios = compression_ratios;
   vector<char> &dump_buffer = chunk.dump_buffer;
   vector<int64_t> &batch_data_sizes = chunk.batch_data_sizes;
   batch_data_sizes.resize(batches.size());
@@ -667,8 +668,8 @@ int main(int argc, char *argv[]) {
 
   // divide into chunks to load
   vector<pair<int64_t, int64_t>> chunk_division;
-  for (int start_idx = 0; start_idx < num_points; start_idx += 5 * MAX_POINTS_PER_BATCH) {
-    int64_t num_points_in_chunk = min((int64_t) 5 * MAX_POINTS_PER_BATCH, num_points - start_idx);
+  for (int start_idx = 0; start_idx < num_points; start_idx += MAX_POINTS_PER_BATCH) {
+    int64_t num_points_in_chunk = min((int64_t) MAX_POINTS_PER_BATCH, num_points - start_idx);
     chunk_division.push_back({start_idx, num_points_in_chunk});
 
     vector<pair<int,int>> batch_parameters = get_batch_parameters(num_points_in_chunk);
@@ -685,9 +686,11 @@ int main(int argc, char *argv[]) {
   int64_t offset = 32;
 
   vector<int64_t> tmp;
+  vector<float> compression_ratios;
   for (int64_t cid = 0; cid < chunk_division.size(); ++cid) {
     auto &[start_idx, num_points_in_chunk] = chunk_division[cid];
     Chunk chunk = process_chunk(LASFILE, start_idx, num_points_in_chunk, should_sort);
+    compression_ratios.insert(compression_ratios.end(), chunk.compression_ratios.begin(), chunk.compression_ratios.end());
 
     encoding_bytes += chunk.encoding_bytes;
     separate_bytes += chunk.separate_bytes;
@@ -707,6 +710,9 @@ int main(int argc, char *argv[]) {
   cout << num_points << " " << num_batches << endl;
   for (auto &x : tmp) cout << x << " ";
   cout << endl;
+
+  cout << "Compression Ratios: " << endl;
+  for (auto &cr : compression_ratios) cout << cr << endl;
 
   return 0;
 }
