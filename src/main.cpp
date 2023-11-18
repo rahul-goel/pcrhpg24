@@ -17,6 +17,7 @@
 #include "experimental/experimental.h"
 #include "basic_cuda/basic_cuda.h"
 #include "huffman_cuda/huffman_cuda.h"
+#include "huffman_mem_iter_cuda/huffman_mem_iter_cuda.h"
 #include "compute_loop_las_hqs/compute_loop_las_hqs.h"
 // #include "compute_loop_las_hqs_vr/compute_loop_las_hqs_vr.h"
 // #include "compute_loop_nodes/compute_loop_nodes.h"
@@ -275,7 +276,8 @@ int main(){
 		// setting.path_las = "F:/temp/wgtest/banyunibo_laserscans/merged.las";
 		// setting.path_las = "/home/rg/lidar_data/tree.las";
 		setting.path_las = "/home/rg/lidar_data/morro_bay.las";
-    setting.path_huffman = "/home/rg/repos/compute_rasterizer/out/morro_bay.huffman";
+    // setting.path_huffman = "/home/rg/repos/compute_rasterizer/out/transpose.huffman";
+    setting.path_huffman = "/home/rg/repos/compute_rasterizer/out/data/transpose/transpose.huffman";
 		// setting.path_las = "/home/rg/lidar_data/points.las";
 
 		// outside
@@ -360,9 +362,11 @@ int main(){
   //   auto basic1 = new BasicCuda(renderer.get(), las_basic);
   //   auto basic2 = new BasicCuda(renderer.get(), las_basic);
     auto huffman_cuda = new ComputeHuffman(renderer.get(), las_huffman);
+    auto huffman_mem_iter_cuda = new HuffmanMemIter(renderer.get(), las_huffman);
 		// Runtime::addMethod((Method*) basic1);
 		// Runtime::addMethod((Method*) basic2);
     Runtime::addMethod((Method*)huffman_cuda);
+    Runtime::addMethod((Method*)huffman_mem_iter_cuda);
   }
 
 	{ // POTREE FORMAT
