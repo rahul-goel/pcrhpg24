@@ -22,6 +22,7 @@ using glm::ivec3;
 #define TARGET_SZ         4 * 4
 
 int NUM_CORES = 0;
+bool TRANSPOSE = 0;
 
 struct LasPoints{
 	shared_ptr<Buffer> buffer;
@@ -266,6 +267,24 @@ struct Chain {
     }
   }
 
+  int get_encoded_size() {
+    int size = 0;
+    if (method == full_huffman) {
+      size = encoded.size();
+    } else if (method == clipped_huffman) {
+      size = encoded_markus.first.size();
+    }
+    return size;
+  }
+
+  void pad_encoded(int max_size) {
+    if (method == full_huffman) {
+      encoded.resize(max_size, 0);
+    } else if (method == clipped_huffman) {
+      encoded_markus.first.resize(max_size, 0);
+    }
+  }
+
   void assert_delta_interleaved_decoded() {
     if (method == full_huffman) {
       assert(delta_interleaved == decoded);
@@ -403,6 +422,15 @@ struct Batch {
     for (int i = 0; i < WORKGROUP_SIZE; ++i) {
       chains[i].hfmn_ptr = &hfmn;
       chains[i].encode();
+    }
+
+    // get max chain size
+    int max_size = chains[0].get_encoded_size();
+    for (int i = 1; i < WORKGROUP_SIZE; ++i)
+      max_size = max(max_size, chains[i].get_encoded_size());
+
+    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+      if (TRANSPOSE) chains[i].pad_encoded(max_size);
       chains[i].decode();
       chains[i].assert_delta_interleaved_decoded();
       old_size += chains[i].get_og_size();
@@ -608,6 +636,16 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
       dst.insert(dst.end(), src.begin(), src.end());
       bdd.encoding_sizes[i] = dst.size() - bdd.encoding_offsets[i];
     }
+    if (TRANSPOSE) {
+      auto src = bdd.encoding;
+      auto &dst = bdd.encoding;
+      int size = b.chains[0].get_encoded_size();
+      for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+        for (int j = 0; j < size; ++j) {
+          dst[j * WORKGROUP_SIZE + i] = src[i * size + j];
+        }
+      }
+    }
 
     // separate
     bdd.separate_offsets.resize(WORKGROUP_SIZE);
@@ -649,7 +687,7 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
 
 int main(int argc, char *argv[]) {
   // parse command line arguments
-  assert(argc == 5); // program name, input file, output file
+  assert(argc == 6); // program name, input file, output file, sort or not, how many cores, transpose or not
 
   vector<string> all_args;
   if (argc > 1) {
@@ -659,9 +697,11 @@ int main(int argc, char *argv[]) {
   string OUTFILE = all_args[1];
   bool should_sort = (bool) stoi(all_args[2]);
   NUM_CORES = stoi(all_args[3]);
+  TRANSPOSE = stoi(all_args[4]);
 
   auto las = LasLoader::loadSync(LASFILE, 0, 100);
   int64_t num_points = las.fullNumPoints;
+  // int64_t num_points = 1e6;
   int64_t num_batches = 0;
   int64_t encoding_bytes = 0;
   int64_t separate_bytes = 0;
