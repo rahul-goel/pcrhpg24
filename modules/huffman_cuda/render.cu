@@ -1,4 +1,6 @@
 #define SHARED_DTABLE
+#define TRANSPOSE_ENCODED
+#define DTABLE_SIZE 4096
 
 #include "huffman_kernel_data.h"
 #include "helper_math.h"
@@ -193,16 +195,21 @@ void kernel(const ChangingRenderData            cdata,
   long long EncodedPtr = batch.encoding_batch_offset;
   long long SeparatePtr = batch.separate_batch_offset;
 
+#ifdef TRANSPOSE_ENCODED
+  int cur_ptr = EncodedPtr + threadIdx.x;
+  int sep_ptr = SeparateDataOffsets[globalThreadIdx] + SeparatePtr;
+#else
   int cur_ptr = EncodedDataOffsets[globalThreadIdx] + EncodedPtr;
   int sep_ptr = SeparateDataOffsets[globalThreadIdx] + SeparatePtr;
+#endif
 
   int DCO = batch.decoder_table_offset;
   int cur_bits = 32;
   unsigned int mask = ((1 << max_cw_size) - 1) << (32 - max_cw_size);
 
 #ifdef SHARED_DTABLE
-  __shared__ int Shared_DecoderTableValues[4096];
-  __shared__ unsigned char Shared_DecoderTableCWLen[4096];
+  __shared__ int Shared_DecoderTableValues[DTABLE_SIZE];
+  __shared__ unsigned char Shared_DecoderTableCWLen[DTABLE_SIZE];
   for (int i = 0; i < (1 << batch.max_cw_len) / blockDim.x; ++i) {
     int idx = i * blockDim.x + threadIdx.x;
     Shared_DecoderTableValues[idx] = DecoderTableValues[DCO + idx];
@@ -216,8 +223,13 @@ void kernel(const ChangingRenderData            cdata,
   // int EDS = EncodedDataSizes[globalThreadIdx];
   // int SDS = SeparateDataSizes[globalThreadIdx];
 
+#ifdef TRANSPOSE_ENCODED
+  unsigned int CurHuffman = EncodedData[cur_ptr];
+  unsigned int NextHuffman = EncodedData[cur_ptr + blockDim.x];
+#else
   unsigned int CurHuffman = EncodedData[cur_ptr];
   unsigned int NextHuffman = EncodedData[cur_ptr + 1];
+#endif
 
   for (int i = 0; i < cdata.uPointsPerThread; ++i) {
     // decode the next delta value for X, Y and Z
@@ -249,9 +261,15 @@ void kernel(const ChangingRenderData            cdata,
 
       // got over
       if (cur_bits <= 0) {
+#ifdef TRANSPOSE_ENCODED
+        cur_ptr += blockDim.x;
+        CurHuffman = NextHuffman;
+        NextHuffman = EncodedData[cur_ptr + blockDim.x];
+#else
         cur_ptr += 1;
         CurHuffman = NextHuffman;
         NextHuffman = EncodedData[cur_ptr + 1];
+#endif
         cur_bits += 32;
       }
     }
@@ -266,4 +284,5 @@ void kernel(const ChangingRenderData            cdata,
 
     rasterize(cdata, framebuffer, cur_xyz, pointIndex);
   }
+  return;
 }
