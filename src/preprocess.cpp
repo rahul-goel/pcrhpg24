@@ -237,31 +237,38 @@ struct Chain {
     }
   }
 
-  void encode() {
+  void encode(unordered_map<int32_t, pair<uint32_t,int>> &collapsed_dict) {
     auto hfmn = *hfmn_ptr;
-    auto collapsed_dict = hfmn.get_collapsed_dictionary<uint32_t>();
     if (method == full_huffman) {
       encoded.clear();
-      encoded = hfmn.compress_udtype_subarray_fast<uint32_t, typename vector<int32_t>::iterator>(delta_interleaved.begin(), delta_interleaved.end(), collapsed_dict);
-    } else if (method == clipped_huffman) {
-      encoded_markus = hfmn.compress_udtype_subarray_fast_markus_idea<
-        uint32_t, typename vector<int32_t>::iterator, int32_t>(
+
+      encoded = hfmn.compress_udtype_subarray_fast<
+          uint32_t, typename vector<int32_t>::iterator>(
           delta_interleaved.begin(), delta_interleaved.end(), collapsed_dict);
+    } else if (method == clipped_huffman) {
+      encoded_markus.first.clear();
+      encoded_markus.second.clear();
+
+      encoded_markus = hfmn.compress_udtype_subarray_fast_pjn_idea<
+        uint32_t, typename vector<int32_t>::iterator, int32_t>(
+          delta_interleaved.begin(), delta_interleaved.end(), collapsed_dict,
+          HUFFMAN_TABLE_SIZE);
     }
   }
 
-  void decode() {
+  void decode(vector<pair<int32_t,int>> &decoder_table) {
     auto hfmn = *hfmn_ptr;
-    auto decoder_table = hfmn.get_gpu_huffman_table();
     if (method == full_huffman) {
       decoded.clear();
       decoded.resize(num_points * 3);
-      hfmn.decompress_udtype_subarray_fast<uint32_t, typename vector<int32_t>::iterator>(decoded.begin(), decoded.end(), encoded, decoder_table);
+      hfmn.decompress_udtype_subarray_fast<uint32_t,
+                                           typename vector<int32_t>::iterator>(
+          decoded.begin(), decoded.end(), encoded, decoder_table);
     } else if (method == clipped_huffman) {
       decoded_markus.clear();
       decoded_markus.resize(num_points * 3);
-      hfmn.decompress_udtype_subarray_fast_markus_idea<
-        uint32_t, typename vector<int32_t>::iterator, int32_t>(
+      hfmn.decompress_udtype_subarray_fast_pjn_idea<
+          uint32_t, typename vector<int32_t>::iterator, int32_t>(
           decoded_markus.begin(), decoded_markus.end(), encoded_markus.first,
           encoded_markus.second, decoder_table);
     }
@@ -362,6 +369,10 @@ struct Batch {
   int64_t encoding_bytes = 0;
   int64_t separate_bytes = 0;
 
+  // huffman dictionary and table for uint32_t
+  unordered_map<int32_t, pair<uint32_t,int>> dictionary;
+  vector<pair<int32_t,int>> decoder_table;
+
   Batch(int point_offset, int num_points, method_type method,
         vector<int32_t>::iterator x_begin, vector<int32_t>::iterator x_end,
         vector<int32_t>::iterator y_begin, vector<int32_t>::iterator y_end,
@@ -409,19 +420,22 @@ struct Batch {
 
     hfmn = Huffman<int32_t>();
     hfmn.calculate_frequencies(all_deltas);
-    if (method == clipped_huffman) {
-      // hfmn.clip_to_top(HUFFMAN_LEAF_COUNT);
-      hfmn.constraint_table_size(HUFFMAN_TABLE_SIZE);
-    }
     hfmn.generate_huffman_tree();
-    hfmn.create_dictionary();
+    if (method == clipped_huffman) {
+      dictionary = hfmn.create_dictionary_pjn<uint32_t>(HUFFMAN_TABLE_SIZE);
+      decoder_table = hfmn.get_gpu_huffman_table_pjn<uint32_t>(dictionary, HUFFMAN_TABLE_SIZE);
+    } else if (method == full_huffman) {
+      hfmn.create_dictionary();
+      dictionary = hfmn.get_collapsed_dictionary<uint32_t>();
+      decoder_table = hfmn.get_gpu_huffman_table();
+    }
     hfmn.clear_huffman_tree();
 
     float old_size = 0;
     float new_size = 0;
     for (int i = 0; i < WORKGROUP_SIZE; ++i) {
       chains[i].hfmn_ptr = &hfmn;
-      chains[i].encode();
+      chains[i].encode(dictionary);
     }
 
     // get max chain size
@@ -431,7 +445,7 @@ struct Batch {
 
     for (int i = 0; i < WORKGROUP_SIZE; ++i) {
       if (TRANSPOSE) chains[i].pad_encoded(max_size);
-      chains[i].decode();
+      chains[i].decode(decoder_table);
       chains[i].assert_delta_interleaved_decoded();
       old_size += chains[i].get_og_size();
       new_size += chains[i].get_compressed_size();
@@ -448,7 +462,6 @@ struct Batch {
     }
 
     // add huffman size
-    auto decoder_table = hfmn.get_gpu_huffman_table();
     for (auto &[symbol, cw_len] : decoder_table) {
       new_size += sizeof(symbol);
       new_size += sizeof(cw_len);
@@ -665,7 +678,8 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     }
 
     // decoder table
-    auto decoder_table = b.hfmn.get_gpu_huffman_table();
+    auto &decoder_table = b.decoder_table;
+
     int dt_size = decoder_table.size();
     bdd.decoder_values.resize(dt_size);
     bdd.decoder_cw_len.resize(dt_size);
