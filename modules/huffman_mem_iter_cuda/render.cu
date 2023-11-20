@@ -191,7 +191,7 @@ void kernel(const ChangingRenderData           cdata,
 
 
   // tracker variables for huffman
-  int max_cw_size = (int) batch.max_cw_len + 1;
+  int max_cw_size = (int) batch.max_cw_len;
   long long EncodedPtr = batch.encoding_batch_offset;
   long long SeparatePtr = batch.separate_batch_offset;
 
@@ -209,8 +209,8 @@ void kernel(const ChangingRenderData           cdata,
 
 #ifdef SHARED_DTABLE
   __shared__ int Shared_DecoderTableValues[DTABLE_SIZE];
-  __shared__ unsigned char Shared_DecoderTableCWLen[DTABLE_SIZE];
-  for (int i = 0; i < (1 << batch.max_cw_len) / blockDim.x; ++i) {
+  __shared__ char Shared_DecoderTableCWLen[DTABLE_SIZE];
+  for (int i = 0; i < (1 << max_cw_size) / blockDim.x; ++i) {
     int idx = i * blockDim.x + threadIdx.x;
     Shared_DecoderTableValues[idx] = DecoderTableValues[DCO + idx];
     Shared_DecoderTableCWLen[idx] = DecoderTableCWLen[DCO + idx];
@@ -238,27 +238,19 @@ void kernel(const ChangingRenderData           cdata,
       unsigned int R = cur_bits == 32 ? 0 : (NextHuffman >> cur_bits);
       unsigned int key = ((L|R) & mask) >> (32 - max_cw_size);
 
-      int cw_size;
-      if ((key >> (max_cw_size - 1)) & 1) {
 #ifdef SHARED_DTABLE
-        int DT_lookup = (key - (1 << (max_cw_size - 1)));
-        int symbol = Shared_DecoderTableValues[DT_lookup];
-        cw_size = 1 + Shared_DecoderTableCWLen[DT_lookup];
+      int symbol = Shared_DecoderTableValues[key];
+      int cw_size = Shared_DecoderTableCWLen[key];
 #else
-        int DT_lookup = DCO + (key - (1 << (max_cw_size - 1)));
-        int symbol = DecoderTableValues[DT_lookup];
-        cw_size = 1 + DecoderTableCWLen[DT_lookup];
+      int DT_lookup = DCO + key;
+      int symbol = DecoderTableValues[DT_lookup];
+      int cw_size = DecoderTableCWLen[DT_lookup];
 #endif
 
-        decoded[decoded_cnt % 3] = symbol;
-        cur_bits -= cw_size;
-      } else {
-        decoded[decoded_cnt % 3] = SeparateData[sep_ptr++];
-        cw_size = 1;
-        cur_bits -= 1;
-      }
-
+      decoded[decoded_cnt % 3] = (cw_size > 0 ? symbol : SeparateData[sep_ptr++]);
+      cur_bits -= abs(cw_size);
       decoded_cnt += 1;
+
       // rasterize after reading all xyz
       if (decoded_cnt % 3 == 0) {
         int3 cur_values = make_int3(decoded[0] + prev_values.x,
