@@ -154,6 +154,163 @@ struct Huffman {
     clip_to_top(optimal_symbols_to_take);
   }
 
+  template<typename udtype>
+  void create_dictionary_pjn(HuffmanNode *cur, vector<bool> &cur_code, unordered_map<T, pair<udtype, int>> &dict, const int &max_cw_size) {
+    bool is_leaf = true;
+    if (cur->left) {
+      is_leaf = false;
+      cur_code.push_back(0);
+      create_dictionary_pjn(cur->left, cur_code, dict, max_cw_size);
+      cur_code.pop_back();
+    }
+    if (cur->right) {
+      is_leaf = false;
+      cur_code.push_back(1);
+      create_dictionary_pjn(cur->right, cur_code, dict, max_cw_size);
+      cur_code.pop_back();
+    }
+    if (is_leaf) {
+      T symbol = cur->value;
+      udtype cw = 0;
+
+      bool frequent_value = cur_code.size() <= max_cw_size;
+      if (frequent_value) {
+        for (int b = 0; b < cur_code.size(); ++b) cw = (cw << 1) | cur_code[b];
+        dict[symbol] = {cw, cur_code.size()};
+      } else {
+        for (int b = 0; b < max_cw_size; ++b) cw = (cw << 1) | cur_code[b];
+        dict[symbol] = {cw, -max_cw_size};                                        // take a note of the negative sign -> means non-frequent value
+      }
+    }
+  }
+
+  template<typename udtype>
+  unordered_map<T, pair<udtype,int>> create_dictionary_pjn(int table_size)  {
+    int max_cw_size = (int) log2(table_size);
+    vector<bool> cur_code;
+    HuffmanNode *cur = head;
+    unordered_map<T, pair<udtype, int>> dict;
+    create_dictionary_pjn<udtype>(cur, cur_code, dict, max_cw_size);
+    return dict;
+  }
+
+  template<typename udtype>
+  vector<pair<T,int>> get_gpu_huffman_table_pjn(unordered_map<T, pair<udtype, int>> &dict, int table_size) {
+    int max_cw_size = (int) log2(table_size);
+
+    vector<pair<T,int>> table(table_size);
+    vector<bool> touched(table_size, false);
+
+    for (auto &[symbol, cw_pair] : dict) {
+      int rem_bits = max_cw_size - abs(cw_pair.second);
+      unsigned int cw = cw_pair.first << rem_bits;
+      for (unsigned int bitmask = 0; bitmask < (1u << rem_bits); ++bitmask) {
+        table[cw + bitmask] = {symbol, cw_pair.second};
+        touched[cw + bitmask] = true;
+      }
+    }
+
+    // every element in the table must be touched
+    for (auto b : touched) assert(b);
+
+    return table;
+  }
+
+  template<typename udtype, typename Iterator, typename delta_dtype>
+  pair<vector<udtype>,vector<delta_dtype>> compress_udtype_subarray_fast_pjn_idea(Iterator begin, Iterator end, unordered_map<T, pair<udtype,int>> &collapsed_dictionary, int table_size) {
+    vector<udtype> vec;                                         // final vector that stores the values in the specified data type
+    const int udtype_num_bits = 8 * sizeof(udtype);             // number of bits in the data type
+    udtype chunk = 0;                                           // element that reprsents the current value to be pushed into the final vector
+    int chunk_rem_bits = udtype_num_bits;                       // number of unoccupied bits (from the LSB side) in the cur_value
+
+    int max_cw_size = (int) log2(table_size);
+    assert(max_cw_size <= udtype_num_bits);                     // else function will not work
+
+    vector<delta_dtype> separate_data;
+    udtype mask;
+    for (Iterator it = begin; it != end; ++it) {
+      auto symbol = *it;
+      bool in_dict = collapsed_dictionary.find(symbol) != collapsed_dictionary.end();
+      pair<udtype,int> p = collapsed_dictionary.at(*it);
+
+      udtype cw = p.first;
+      int cw_rem_bits = abs(p.second);
+
+      assert(p.second != 0); // should be non-zero
+
+      if (p.second < 0) {
+        separate_data.push_back(symbol);
+      }
+
+      while (cw_rem_bits) {
+        int min_bits = min(chunk_rem_bits, cw_rem_bits);
+        mask = (((udtype) 1 << cw_rem_bits) - 1) - (((udtype) 1 << (cw_rem_bits - min_bits)) - 1);
+        chunk = chunk | (((mask & cw) >> (cw_rem_bits - min_bits)) << (chunk_rem_bits - min_bits));
+
+        cw_rem_bits -= min_bits;
+        chunk_rem_bits -= min_bits;
+
+        if (chunk_rem_bits == 0) {
+          vec.push_back(chunk);
+          chunk = 0;
+          chunk_rem_bits = udtype_num_bits;
+        }
+      }
+    }
+
+    if (chunk_rem_bits < udtype_num_bits) {
+      vec.push_back(chunk);
+    }
+
+    return {vec, separate_data};
+  }
+
+  template<typename udtype, typename Iterator, typename delta_dtype>
+  void decompress_udtype_subarray_fast_pjn_idea(Iterator begin, Iterator end, vector<udtype> &bitstream, vector<delta_dtype> &separate_data, vector<pair<T,int>> &decoder_table) {
+    const int udtype_num_bits = 8 * sizeof(udtype);             // number of bits in the data type
+    int max_cw_size = (int) log2(decoder_table.size());         // max codewords size
+    assert(max_cw_size <= udtype_num_bits);                     // else function will not work
+
+    int sep_ptr = 0;
+
+    int cur_ptr = 0;
+    int cur_bits = udtype_num_bits;
+    udtype window, key;
+    udtype mask = ((1 << max_cw_size) - 1) << (udtype_num_bits - max_cw_size);
+
+    bitstream.push_back(0);                                     // add dummy value for (cur_ptr + 1)
+    Iterator it = begin;
+    while (it != end) {
+      udtype L = cur_bits == udtype_num_bits ? bitstream[cur_ptr] : (bitstream[cur_ptr] << (udtype_num_bits - cur_bits));
+      udtype R = cur_bits == udtype_num_bits ? 0 : (bitstream[cur_ptr + 1] >> cur_bits);
+      window = L | R;
+      key = (window & mask) >> (udtype_num_bits - max_cw_size);
+      pair<T, int> p = decoder_table[key];
+      T symbol = p.first;
+      int cw_size = abs(p.second);
+
+      assert(p.second != 0);                                    // should be non-zero
+
+      if (p.second > 0) {
+        *it = symbol;
+      } else {
+        *it = separate_data[sep_ptr++];
+      }
+      int min_bits = min(cw_size, cur_bits);
+      cur_bits -= min_bits;
+      cw_size -= min_bits;
+      if (cw_size < cur_bits) {
+        cur_bits -= cw_size;
+      } else {
+        cur_ptr += 1;
+        cur_bits = cur_bits + udtype_num_bits - cw_size;
+      }
+
+      ++it;
+    }
+    bitstream.pop_back();                                       // remove dummy value for (cur_ptr + 1)
+  }
+
   void create_dictionary(HuffmanNode *cur, vector<bool> &cur_code, unordered_map<T,vector<bool>> &dict) {
     bool is_leaf = true;
     if (cur->left) {
