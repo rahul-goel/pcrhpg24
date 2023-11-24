@@ -9,6 +9,7 @@
 #include <bitset>
 #include <future>
 #include <cmath>
+#include "glm/common.hpp"
 
 using namespace std;
 
@@ -263,6 +264,137 @@ struct Huffman {
     }
 
     return {vec, separate_data};
+  }
+
+  glm::uvec4 get_uvec4(vector<uint32_t> &vec, vector<int> &lengths) {
+    assert(vec.size() == lengths.size());
+
+    glm::uvec4 codeword_chunk;
+    int used_bits = 0;
+
+    int offset = 0;
+    for (int i = 0; i < vec.size(); ++i) {
+      int len = lengths[i];
+      assert(len > 0);
+
+      int idx = offset / 32;
+      int mod = offset % 32;
+      if (len + mod > 32) {
+        // gotta split 'em up, this should not happen towards the end
+        assert(idx != 3);
+        uint32_t cw_1 = vec[i] >> (len + mod - 32);
+        uint32_t cw_2 = vec[i] << (64 - len - mod);
+        codeword_chunk[idx] |= cw_1;
+        codeword_chunk[idx + 1] |= cw_2;
+      } else {
+        uint32_t cw = (vec[i] << (32 - len - mod));
+        codeword_chunk[idx] |= cw;
+      }
+
+      offset += len;
+    }
+
+    return codeword_chunk;
+  }
+
+  // this function generates intermediate compression results that will be used
+  // by a batch to determine the cluster sizes
+  template<typename udtype, typename Iterator, typename delta_dtype>
+  tuple<vector<udtype>, vector<int>, vector<delta_dtype>> precompress_rahul(Iterator begin, Iterator end, unordered_map<T, pair<udtype,int>> &collapsed_dictionary, int table_size) {
+    vector<udtype> codes;
+    vector<int> sizes;
+    vector<delta_dtype> separate_data;
+
+    int max_cw_size = (int) log2(table_size);
+    const int udtype_num_bits = 8 * sizeof(udtype);
+    assert(max_cw_size <= udtype_num_bits);                     // else function will not work
+
+    for (Iterator it = begin; it != end; ++it) {
+      auto symbol = *it;
+      pair<udtype,int> p = collapsed_dictionary.at(*it);
+      codes.push_back(p.first);
+      sizes.push_back(abs(p.second));
+      assert(p.second != 0); // should be non-zero
+      if (p.second < 0) {
+        separate_data.push_back(symbol);
+      }
+    }
+
+    return {codes, sizes, separate_data};
+  }
+
+  // this function will use the intermediate compression results and then
+  // cluster sizes given by the batch to encode the data as a collection of
+  // uvec4s
+  template<typename udtype, typename Iterator, typename delta_dtype>
+  vector<udtype> compress_rahul(vector<udtype> &codes, vector<int> &lengths, vector<int> &cluster_sizes) {
+    vector<udtype> ret;
+
+    int start_idx = 0;
+    for (int &size: cluster_sizes) {
+      vector<uint32_t> codes_subarray(size);
+      vector<int> lengths_subarray(size);
+      for (int i = 0; i < size; ++i) {
+        codes_subarray[i] = codes[start_idx + i];
+        lengths_subarray[i] = lengths[start_idx + i];
+      }
+      glm::uvec4 cw = get_uvec4(codes_subarray, lengths_subarray);
+      ret.insert(ret.end(), {cw.x, cw.y, cw.z, cw.w});
+      start_idx += size;
+    }
+
+    return ret;
+  }
+
+  // given the cluster sizes, encoding, and the separate data, this function
+  // will decode it
+  template<typename udtype, typename Iterator, typename delta_dtype>
+  void decompress_rahul(Iterator begin, Iterator end, vector<udtype> &bitstream, vector<delta_dtype> &separate_data, vector<int> &cluster_sizes, vector<pair<T,int>> &decoder_table) {
+    assert(bitstream.size() % 4 == 0);
+    const int udtype_num_bits = 8 * sizeof(udtype);             // number of bits in the data type
+    int max_cw_size = (int) log2(decoder_table.size());         // max codewords size
+    assert(max_cw_size <= udtype_num_bits);                     // else function will not work
+
+    int sep_ptr = 0;
+    udtype window, key;
+    udtype mask = ((1 << max_cw_size) - 1) << (udtype_num_bits - max_cw_size);
+
+    // simulate decoding 4 at a time
+    Iterator it = begin;
+    for (int i = 0; i < bitstream.size(); i += 4) {
+      glm::uvec4 codeword_chunk(bitstream[i], bitstream[i + 1], bitstream[i + 2], bitstream[i + 3]);
+      int cur_bits = udtype_num_bits;
+      int cur_ptr = 0;
+
+      for (int c = 0; c < cluster_sizes[i / 4]; ++c) {
+        udtype L = cur_bits == udtype_num_bits ? codeword_chunk[cur_ptr] : (codeword_chunk[cur_ptr] << (udtype_num_bits - cur_bits));
+        udtype R = (cur_ptr == 3 || cur_bits == udtype_num_bits) ? 0 : (codeword_chunk[cur_ptr + 1] >> cur_bits);
+        window = L | R;
+        key = (window & mask) >> (udtype_num_bits - max_cw_size);
+        pair<T, int> p = decoder_table[key];
+        T symbol = p.first;
+        int cw_size = abs(p.second);
+
+        assert(p.second != 0);                                    // should be non-zero
+
+        if (p.second > 0) {
+          *it = symbol;
+        } else {
+          *it = separate_data[sep_ptr++];
+        }
+        int min_bits = min(cw_size, cur_bits);
+        cur_bits -= min_bits;
+        cw_size -= min_bits;
+        if (cw_size < cur_bits) {
+          cur_bits -= cw_size;
+        } else {
+          cur_ptr += 1;
+          cur_bits = cur_bits + udtype_num_bits - cw_size;
+        }
+
+        ++it;
+      }
+    }
   }
 
   template<typename udtype, typename Iterator, typename delta_dtype>

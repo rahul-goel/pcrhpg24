@@ -14,6 +14,7 @@
 using namespace std;
 using glm::dvec3;
 using glm::ivec3;
+using glm::uvec4;
 
 #define TARGET_START_X    0
 #define TARGET_START_Y    TARGET_START_X + 4
@@ -362,12 +363,14 @@ struct Batch {
   Huffman<int32_t> hfmn;
   method_type method;
   float compression_ratio;
+  vector<int> cluster_sizes;
 
   int32_t bbox_min[3];
   int32_t bbox_max[3];
 
   int64_t encoding_bytes = 0;
   int64_t separate_bytes = 0;
+  int64_t cluster_bytes = 0;
 
   // huffman dictionary and table for uint32_t
   unordered_map<int32_t, pair<uint32_t,int>> dictionary;
@@ -389,6 +392,93 @@ struct Batch {
                          y_begin + offset, y_begin + offset + chain_size,
                          z_begin + offset, z_begin + offset + chain_size));
       chains.back().method = this->method;
+    }
+  }
+
+  uvec4 get_uvec4(vector<uint32_t> &vec, vector<int> &lengths) {
+    assert(vec.size() == lengths.size());
+
+    uvec4 codeword_chunk;
+    int used_bits = 0;
+
+    int offset = 0;
+    for (int i = 0; i < vec.size(); ++i) {
+      int len = lengths[i];
+      assert(len > 0);
+
+      int idx = offset / 32;
+      int mod = offset % 32;
+      if (len + mod > 32) {
+        // gotta split 'em up, this should not happen towards the end
+        assert(idx != 3);
+        uint32_t cw_1 = vec[i] >> (len + mod - 32);
+        uint32_t cw_2 = vec[i] << (64 - len - mod);
+        codeword_chunk[idx] |= cw_1;
+        codeword_chunk[idx + 1] |= cw_2;
+      } else {
+        uint32_t cw = (vec[i] << (32 - len - mod));
+        codeword_chunk[idx] |= cw;
+      }
+
+      offset += len;
+    }
+
+    return codeword_chunk;
+  }
+
+  void encode_decode_rahul(Huffman<int32_t> &hfmn) {
+    vector<vector<uint32_t>> all_codes(WORKGROUP_SIZE);
+    vector<vector<int>> all_sizes(WORKGROUP_SIZE);
+    vector<vector<int32_t>> all_separate_data(WORKGROUP_SIZE);
+
+    // get the precompression data
+    for (int tid = 0; tid < WORKGROUP_SIZE; ++tid) {
+      auto &deltas = chains[tid].delta_interleaved;
+      auto [codes, sizes, separate_data] = hfmn.precompress_rahul
+      <uint32_t, typename vector<int32_t>::iterator, int32_t>
+      (deltas.begin(), deltas.end(), dictionary, HUFFMAN_TABLE_SIZE);
+      all_codes[tid] = codes;
+      all_sizes[tid] = sizes;
+      all_separate_data[tid] = separate_data;
+    }
+
+    // calculate the cluster sizes
+    vector<int> bitcount(WORKGROUP_SIZE, 0);
+    cluster_sizes = vector<int>(1, 0);
+
+    for (int eid = 0; eid < POINTS_PER_THREAD * 3; ++eid) {
+      for (int tid = 0; tid < WORKGROUP_SIZE; ++tid) {
+        bitcount[tid] += all_sizes[tid][eid];
+      }
+      int mx = *max_element(bitcount.begin(), bitcount.end());
+      bool can_fit_in = mx <= 32 * 4;
+      if (can_fit_in) {
+        ++cluster_sizes.back();
+      } else {
+        cluster_sizes.push_back(1);
+        for (int tid = 0; tid < WORKGROUP_SIZE; ++tid) {
+          bitcount[tid] = all_sizes[tid][eid];
+        }
+      }
+    }
+
+    // compress using the cluster sizes
+    for (int tid = 0; tid < WORKGROUP_SIZE; ++tid) {
+      // set the data in the chains so that it can be used later
+      chains[tid].encoded_markus.first = hfmn.compress_rahul
+      <uint32_t, typename vector<int32_t>::iterator, int32_t>
+      (all_codes[tid], all_sizes[tid], cluster_sizes);
+
+      chains[tid].encoded_markus.second = all_separate_data[tid];
+    }
+
+    for (int tid = 0; tid < WORKGROUP_SIZE; ++tid) {
+      vector<int32_t> thread_decoded(POINTS_PER_THREAD * 3);
+      hfmn.decompress_rahul<uint32_t, typename vector<int32_t>::iterator,
+                            int32_t>(
+          thread_decoded.begin(), thread_decoded.end(), chains[tid].encoded_markus.first,
+          all_separate_data[tid], cluster_sizes, decoder_table);
+      assert(thread_decoded == chains[tid].delta_interleaved);
     }
   }
 
@@ -431,22 +521,30 @@ struct Batch {
     }
     hfmn.clear_huffman_tree();
 
+    // float old_size = 0;
+    // float new_size = 0;
+    // for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+    //   chains[i].hfmn_ptr = &hfmn;
+    //   chains[i].encode(dictionary);
+    // }
+
+    // // get max chain size
+    // int max_size = chains[0].get_encoded_size();
+    // for (int i = 1; i < WORKGROUP_SIZE; ++i)
+    //   max_size = max(max_size, chains[i].get_encoded_size());
+
+    // for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+    //   if (TRANSPOSE) chains[i].pad_encoded(max_size);
+    //   chains[i].decode(decoder_table);
+    //   chains[i].assert_delta_interleaved_decoded();
+    //   old_size += chains[i].get_og_size();
+    //   new_size += chains[i].get_compressed_size();
+    // }
+
     float old_size = 0;
     float new_size = 0;
+    encode_decode_rahul(hfmn);
     for (int i = 0; i < WORKGROUP_SIZE; ++i) {
-      chains[i].hfmn_ptr = &hfmn;
-      chains[i].encode(dictionary);
-    }
-
-    // get max chain size
-    int max_size = chains[0].get_encoded_size();
-    for (int i = 1; i < WORKGROUP_SIZE; ++i)
-      max_size = max(max_size, chains[i].get_encoded_size());
-
-    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
-      if (TRANSPOSE) chains[i].pad_encoded(max_size);
-      chains[i].decode(decoder_table);
-      chains[i].assert_delta_interleaved_decoded();
       old_size += chains[i].get_og_size();
       new_size += chains[i].get_compressed_size();
     }
@@ -460,6 +558,7 @@ struct Batch {
         separate_bytes += chains[i].get_separate_num_bytes();
       }
     }
+    cluster_bytes = cluster_sizes.size() * 4;
 
     // add huffman size
     for (auto &[symbol, cw_len] : decoder_table) {
@@ -474,6 +573,7 @@ struct Chunk {
   int64_t num_points;
   int64_t encoding_bytes = 0;
   int64_t separate_bytes = 0;
+  int64_t cluster_bytes = 0;
   vector<int64_t> batch_data_sizes;
   vector<float> compression_ratios;
   vector<char> dump_buffer;
@@ -494,6 +594,18 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
 
     actual_color[i] = las.buffer->get<uint32_t>(TARGET_SZ * i +  TARGET_START_RGBA);
   }
+  // last batch fix
+  int extra_needed = 0;
+  if (num_points % POINTS_PER_WORKGROUP) extra_needed = POINTS_PER_WORKGROUP - (num_points % POINTS_PER_WORKGROUP);
+  vector<int32_t> extra_x(extra_needed, actual_x.back());
+  vector<int32_t> extra_y(extra_needed, actual_y.back());
+  vector<int32_t> extra_z(extra_needed, actual_z.back());
+  vector<uint32_t> extra_color(extra_needed, actual_color.back());
+  actual_x.insert(actual_x.end(), extra_x.begin(), extra_x.end());
+  actual_y.insert(actual_y.end(), extra_y.begin(), extra_y.end());
+  actual_z.insert(actual_z.end(), extra_z.begin(), extra_z.end());
+  actual_color.insert(actual_color.end(), extra_color.begin(), extra_color.end());
+  num_points += extra_needed;
   cout << "Collected Original Data" << endl;
 
   // sort by morton order
@@ -547,12 +659,15 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     };
     futures.push(async(launch::async, lambda));
   }
-  cout << endl;
 
   while (futures.size() > 0) {
     futures.front().get();
     futures.pop();
+    processed += 1;
+    printf("\r%f", (float) processed / batches.size());
+    fflush(stdout);
   }
+  cout << endl;
   cout << "Huffman Encoding done" << endl;
 
   float compression_ratio = 0;
@@ -564,9 +679,11 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
   // sum up encoding, separate bytes
   int64_t encoding_bytes = 0;
   int64_t separate_bytes = 0;
+  int64_t cluster_bytes = 0;
   for (int i = 0; i < batches.size(); ++i) {
     encoding_bytes += batches[i].encoding_bytes;
     separate_bytes += batches[i].separate_bytes;
+    cluster_bytes += batches[i].cluster_bytes;
   }
 
 
@@ -578,6 +695,7 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
   chunk.num_points = num_points;
   chunk.encoding_bytes = encoding_bytes;
   chunk.separate_bytes = separate_bytes;
+  chunk.cluster_bytes = cluster_bytes;
   chunk.compression_ratios = compression_ratios;
   vector<char> &dump_buffer = chunk.dump_buffer;
   vector<int64_t> &batch_data_sizes = chunk.batch_data_sizes;
@@ -653,12 +771,27 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
       auto src = bdd.encoding;
       auto &dst = bdd.encoding;
       int size = b.chains[0].get_encoded_size();
+      assert(size % 4 == 0);
       for (int i = 0; i < WORKGROUP_SIZE; ++i) {
         for (int j = 0; j < size; ++j) {
           dst[j * WORKGROUP_SIZE + i] = src[i * size + j];
         }
       }
     }
+    // int len = b.chains[0].encoded_markus.first.size();
+    // auto &dst = bdd.encoding;
+    // assert(len % 4 == 0);
+    // for (int i = 0; i < len; i += 4) {
+    //   for (int tid = 0; tid < WORKGROUP_SIZE; ++tid) {
+    //     auto &src = b.chains[tid].encoded_markus.first;
+    //     dst.insert(dst.end(), {src[i], src[i + 1], src[i + 2], src[i + 3]});
+    //   }
+    // }
+
+    // for (int tid = 0; tid < WORKGROUP_SIZE; ++tid) {
+    //   bdd.encoding_offsets[tid] = 0;
+    //   bdd.encoding_sizes[tid] = len;
+    // }
 
     // separate
     bdd.separate_offsets.resize(WORKGROUP_SIZE);
@@ -688,6 +821,10 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
       bdd.decoder_values[i] = decoder_table[i].first;
       bdd.decoder_cw_len[i] = decoder_table[i].second;
     }
+
+    // cluster sizes
+    bdd.num_clusters = b.cluster_sizes.size();
+    bdd.cluster_sizes = b.cluster_sizes;
 
     // dump
     vector<char> bdd_buffer = bdd.get_buffer();
@@ -719,6 +856,7 @@ int main(int argc, char *argv[]) {
   int64_t num_batches = 0;
   int64_t encoding_bytes = 0;
   int64_t separate_bytes = 0;
+  int64_t cluster_bytes = 0;
 
   // divide into chunks to load
   vector<pair<int64_t, int64_t>> chunk_division;
@@ -734,20 +872,22 @@ int main(int argc, char *argv[]) {
   cout << "Number of Batches: " << num_batches << endl;
 
   // declare the dump buffer
-  int64_t header_num_ints = 4 + num_batches;
+  int64_t header_num_ints = 5 + num_batches;
   vector<char> dump_buffer(header_num_ints * 8, 0);
   dump_buffer.reserve(num_points * 10);
-  int64_t offset = 32;
+  int64_t offset = 5 * 8;
 
-  vector<int64_t> tmp;
   vector<float> compression_ratios;
+  int64_t new_num_points = 0;
   for (int64_t cid = 0; cid < chunk_division.size(); ++cid) {
     auto &[start_idx, num_points_in_chunk] = chunk_division[cid];
     Chunk chunk = process_chunk(LASFILE, start_idx, num_points_in_chunk, should_sort);
+    new_num_points += chunk.num_points;
     compression_ratios.insert(compression_ratios.end(), chunk.compression_ratios.begin(), chunk.compression_ratios.end());
 
     encoding_bytes += chunk.encoding_bytes;
     separate_bytes += chunk.separate_bytes;
+    cluster_bytes += chunk.cluster_bytes;
 
     dump_buffer.insert(dump_buffer.end(), chunk.dump_buffer.begin(), chunk.dump_buffer.end());
     memcpy(dump_buffer.data() + offset, chunk.batch_data_sizes.data(), chunk.batch_data_sizes.size() * 8);
@@ -755,15 +895,14 @@ int main(int argc, char *argv[]) {
     cout << cid << " " << chunk_division.size() << endl;
   }
 
-  memcpy(dump_buffer.data() + 0, &num_points, 8);
+  memcpy(dump_buffer.data() + 0, &new_num_points, 8);
   memcpy(dump_buffer.data() + 8, &num_batches, 8);
   memcpy(dump_buffer.data() + 16, &encoding_bytes, 8);
   memcpy(dump_buffer.data() + 24, &separate_bytes, 8);
+  memcpy(dump_buffer.data() + 32, &cluster_bytes, 8);
   writeBinaryFile(OUTFILE, dump_buffer);
 
   cout << num_points << " " << num_batches << endl;
-  for (auto &x : tmp) cout << x << " ";
-  cout << endl;
 
   cout << "Compression Ratios: " << endl;
   for (auto &cr : compression_ratios) cout << cr << endl;

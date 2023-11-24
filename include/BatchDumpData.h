@@ -26,6 +26,7 @@ struct BatchDumpData {
   float las_max[3];
 
   int32_t dt_size;
+  int32_t num_clusters;
 
   vector<int32_t> start_values;
 
@@ -38,12 +39,14 @@ struct BatchDumpData {
 
   vector<int32_t> decoder_values;
   vector<int32_t> decoder_cw_len;
+  vector<int32_t> cluster_sizes;
 
   size_t get_total_size() {
-    size_t total_size = 4 * 23;
+    size_t total_size = 4 * 24;
     total_size += start_values.size()             * 4;
     total_size += decoder_values.size()           * 4;
     total_size += decoder_cw_len.size()           * 4;
+    total_size += cluster_sizes.size()            * 4;
     total_size += encoding_offsets.size()         * 4;
     total_size += encoding_sizes.size()           * 4;
     total_size += encoding.size()                 * 4;
@@ -93,6 +96,9 @@ struct BatchDumpData {
     // What is the size of the decoder table? (Should be a power of 2.)
     memcpy(&dt_size, buf_ptr + offset, 4);
     offset += 4;
+    // How many clusters are there for this batch?
+    memcpy(&num_clusters, buf_ptr + offset, 4);
+    offset += 4;
 
     start_values.resize(num_threads * 3);
     encoding_offsets.resize(num_threads);
@@ -101,6 +107,7 @@ struct BatchDumpData {
     separate_sizes.resize(num_threads);
     decoder_values.resize(dt_size);
     decoder_cw_len.resize(dt_size);
+    cluster_sizes.resize(num_clusters);
 
     // What are the 3 start values for each of the individual strip/chain?
     memcpy(start_values.data(), buf_ptr + offset, start_values.size() * 4);
@@ -123,6 +130,9 @@ struct BatchDumpData {
     // The second column of the Decoder Table (length of codewords).
     memcpy(decoder_cw_len.data(), buf_ptr + offset, decoder_cw_len.size() * 4);
     offset += 4 * decoder_cw_len.size();
+    // The cluster sizes. Each cluster tells how many points in uvec4.
+    memcpy(cluster_sizes.data(), buf_ptr + offset, cluster_sizes.size() * 4);
+    offset += 4 * cluster_sizes.size();
 
     encoding.resize(accumulate(encoding_sizes.begin(), encoding_sizes.end(), 0ll));
     separate.resize(accumulate(separate_sizes.begin(), separate_sizes.end(), 0ll));
@@ -168,6 +178,8 @@ struct BatchDumpData {
     offset += 4 * 3;
     memcpy(buffer.data() + offset, &dt_size, 4);
     offset += 4;
+    memcpy(buffer.data() + offset, &num_clusters, 4);
+    offset += 4;
 
     memcpy(buffer.data() + offset, start_values.data(), start_values.size() * 4);
     offset += 4 * start_values.size();
@@ -183,6 +195,8 @@ struct BatchDumpData {
     offset += 4 * decoder_values.size();
     memcpy(buffer.data() + offset, decoder_cw_len.data(), decoder_cw_len.size() * 4);
     offset += 4 * decoder_cw_len.size();
+    memcpy(buffer.data() + offset, cluster_sizes.data(), cluster_sizes.size() * 4);
+    offset += 4 * cluster_sizes.size();
 
     memcpy(buffer.data() + offset, encoding.data(), encoding.size() * 4);
     offset += 4 * encoding.size();
@@ -221,6 +235,8 @@ struct BatchDumpData {
     offset += 4 * 3;
     memcpy(buffer + offset, &dt_size, 4);
     offset += 4;
+    memcpy(buffer + offset, &num_clusters, 4);
+    offset += 4;
 
     memcpy(buffer + offset, start_values.data(), start_values.size() * 4);
     offset += 4 * start_values.size();
@@ -236,6 +252,8 @@ struct BatchDumpData {
     offset += 4 * decoder_values.size();
     memcpy(buffer + offset, decoder_cw_len.data(), decoder_cw_len.size() * 4);
     offset += 4 * decoder_cw_len.size();
+    memcpy(buffer + offset, cluster_sizes.data(), cluster_sizes.size() * 4);
+    offset += 4 * cluster_sizes.size();
 
     memcpy(buffer + offset, encoding.data(), encoding.size() * 4);
     offset += 4 * encoding.size();
