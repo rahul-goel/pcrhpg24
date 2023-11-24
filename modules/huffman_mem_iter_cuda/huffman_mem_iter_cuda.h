@@ -39,6 +39,7 @@ struct HuffmanMemIter : public Method {
   CUgraphicsResource SeparateDataSizes;
   CUgraphicsResource DecoderTableValues;
   CUgraphicsResource DecoderTableCWLen;
+  CUgraphicsResource ClusterSizes;
   CUgraphicsResource Colors;
 
 	CUgraphicsResource output;
@@ -54,6 +55,7 @@ struct HuffmanMemIter : public Method {
   CUdeviceptr SeparateDataSizes_ptr;
   CUdeviceptr DecoderTableValues_ptr;
   CUdeviceptr DecoderTableCWLen_ptr;
+  CUdeviceptr ClusterSizes_ptr;
   CUdeviceptr Colors_ptr;
 
 
@@ -84,7 +86,7 @@ struct HuffmanMemIter : public Method {
         BatchData, StartValues,
         EncodedData, EncodedDataOffsets, EncodedDataSizes,
         SeparateData, SeparateDataOffsets, SeparateDataSizes,
-        DecoderTableValues, DecoderTableCWLen, Colors
+        DecoderTableValues, DecoderTableCWLen, ClusterSizes, Colors
       };
 
       cuGraphicsUnmapResources(persistent_resources.size(),
@@ -100,6 +102,7 @@ struct HuffmanMemIter : public Method {
       cuGraphicsUnregisterResource(SeparateDataSizes);
       cuGraphicsUnregisterResource(DecoderTableValues);
       cuGraphicsUnregisterResource(DecoderTableCWLen);
+      cuGraphicsUnregisterResource(ClusterSizes);
       cuGraphicsUnregisterResource(Colors);
       cuGraphicsUnregisterResource(output);
 		}
@@ -142,6 +145,7 @@ struct HuffmanMemIter : public Method {
       cuGraphicsGLRegisterBuffer(&SeparateDataSizes,   las->SeparateDataSizes.handle,   CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
       cuGraphicsGLRegisterBuffer(&DecoderTableValues,  las->DecoderTableValues.handle,  CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
       cuGraphicsGLRegisterBuffer(&DecoderTableCWLen,   las->DecoderTableCWLen.handle,   CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
+      cuGraphicsGLRegisterBuffer(&ClusterSizes,        las->ClusterSizes.handle,        CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
       cuGraphicsGLRegisterBuffer(&Colors,              las->Colors.handle,              CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
 
       // 2d image that will be re-written again and again by cuda
@@ -151,7 +155,7 @@ struct HuffmanMemIter : public Method {
         BatchData, StartValues,
         EncodedData, EncodedDataOffsets, EncodedDataSizes,
         SeparateData, SeparateDataOffsets, SeparateDataSizes,
-        DecoderTableValues, DecoderTableCWLen, Colors
+        DecoderTableValues, DecoderTableCWLen, ClusterSizes, Colors
       };
 			cuGraphicsMapResources(persistent_resources.size(), persistent_resources.data(), ((CUstream)CU_STREAM_DEFAULT));
 
@@ -172,6 +176,7 @@ struct HuffmanMemIter : public Method {
       cuGraphicsResourceGetMappedPointer(&SeparateDataSizes_ptr, &size, SeparateDataSizes);
       cuGraphicsResourceGetMappedPointer(&DecoderTableValues_ptr, &size, DecoderTableValues);
       cuGraphicsResourceGetMappedPointer(&DecoderTableCWLen_ptr, &size, DecoderTableCWLen);
+      cuGraphicsResourceGetMappedPointer(&ClusterSizes_ptr, &size, ClusterSizes);
       cuGraphicsResourceGetMappedPointer(&Colors_ptr, &size, Colors);
       mapped = true;
     }
@@ -214,7 +219,7 @@ struct HuffmanMemIter : public Method {
       &BatchData_ptr, &StartValues_ptr,
       &EncodedData_ptr, &EncodedDataOffsets_ptr, &EncodedDataSizes_ptr,
       &SeparateData_ptr, &SeparateDataOffsets_ptr, &SeparateDataSizes_ptr,
-      &DecoderTableValues_ptr, &DecoderTableCWLen_ptr, &Colors_ptr};
+      &DecoderTableValues_ptr, &DecoderTableCWLen_ptr, &ClusterSizes_ptr, &Colors_ptr};
 
       // cout << "launching kernel " << numBatches << " " << WORKGROUP_SIZE << endl;
 			CUresult opt = cuLaunchKernel(renderProg->kernel,
