@@ -20,7 +20,8 @@ struct HuffmanLasData : public Resource {
   int64_t   numBatches                  = 0;
   int64_t   numPoints                   = 0;
   int64_t   encodedBytes                = 0;
-  int64_t   separateBytes                = 0;
+  int64_t   separateBytes               = 0;
+  int64_t   clusterBytes                = 0;
 
   vector<int64_t> batch_data_sizes;
   vector<int64_t> batch_data_sizes_prefix;
@@ -40,24 +41,27 @@ struct HuffmanLasData : public Resource {
   GLBuffer SeparateDataSizes;           // each thread asks -> how big is my separate data?
   GLBuffer DecoderTableValues;          // decoder table: index -> symbol
   GLBuffer DecoderTableCWLen;           // decoder table: index -> codeword length
+  GLBuffer ClusterSizes;                // the number of points in each uvec4
   GLBuffer Colors;                      // list of colors for all points
 
   // From where should I start filling the GL Buffers?
   size_t EncodedPtr = 0;
   size_t SeparatePtr = 0;
   size_t DecoderTablePtr = 0;
+  size_t ClusterSizesPtr = 0;
 
   HuffmanLasData() {}
 
   void loadHeader() {
     // read the number of batches
     auto file_offset = 0;
-    auto firstWordBuffer = readBinaryFile(this->path, file_offset, 32);
+    auto firstWordBuffer = readBinaryFile(this->path, file_offset, 5 * 8);
     this->numPoints = firstWordBuffer->get<int64_t>(0);
     this->numBatches = firstWordBuffer->get<int64_t>(8);
     this->encodedBytes = firstWordBuffer->get<int64_t>(16);
     this->separateBytes = firstWordBuffer->get<int64_t>(24);
-    file_offset += 32;
+    this->clusterBytes = firstWordBuffer->get<int64_t>(32);
+    file_offset += 5 * 8;
     
     // read the batch chunk sizes
     auto batch_data_sizes_buffer = readBinaryFile(this->path, file_offset, 8 * this->numBatches);

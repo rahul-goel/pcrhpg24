@@ -35,8 +35,9 @@ void HuffmanLasData::load(Renderer *renderer) {
     this->SeparateDataOffsets   = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 4);
     this->SeparateDataSizes     = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 4);
     this->Colors                = renderer->createBuffer(this->numPoints * 4);
-    this->DecoderTableValues    = renderer->createBuffer(numBatches * 10000 * 4);
-    this->DecoderTableCWLen     = renderer->createBuffer(numBatches * 10000 * 4);
+    this->DecoderTableValues    = renderer->createBuffer(numBatches * HUFFMAN_TABLE_SIZE * 4);
+    this->DecoderTableCWLen     = renderer->createBuffer(numBatches * HUFFMAN_TABLE_SIZE * 4);
+    this->ClusterSizes          = renderer->createBuffer(this->clusterBytes);
 
     GLuint zero = 0;
 		glClearNamedBufferData(this->BatchData.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
@@ -50,6 +51,7 @@ void HuffmanLasData::load(Renderer *renderer) {
 		glClearNamedBufferData(this->Colors.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 		glClearNamedBufferData(this->DecoderTableValues.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 		glClearNamedBufferData(this->DecoderTableCWLen.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
+		glClearNamedBufferData(this->ClusterSizes.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
   }
 
   // start loader thread and detach it immediately
@@ -124,6 +126,7 @@ void HuffmanLasData::unload(Renderer *renderer) {
   glDeleteBuffers(1, &Colors.handle);
   glDeleteBuffers(1, &DecoderTableValues.handle);
   glDeleteBuffers(1, &DecoderTableCWLen.handle);
+  glDeleteBuffers(1, &ClusterSizes.handle);
 
   lock_guard<mutex> lock(huffman_mtx_state);
   if (state == ResourceState::LOADED) {
@@ -169,6 +172,7 @@ void HuffmanLasData::process(Renderer *renderer) {
     batch.encoding_batch_offset = this->EncodedPtr;
     batch.separate_batch_offset = this->SeparatePtr;
     batch.decoder_table_offset = this->DecoderTablePtr;
+    batch.cluster_sizes_offset = this->ClusterSizesPtr;
     batch.max_cw_len = (long long) log2(bdd.dt_size);
 
     { // printing for debugging
@@ -203,6 +207,13 @@ void HuffmanLasData::process(Renderer *renderer) {
       assert(arr1.size() == arr2.size());
       DecoderTablePtr += arr1.size();
     }
+    { // cluster sizes
+      auto &arr = bdd.cluster_sizes;
+      size_t offset = ClusterSizesPtr * sizeof(arr[0]);
+      size_t size = arr.size() * sizeof(arr[0]);
+      glNamedBufferSubData(this->ClusterSizes.handle, offset, size, arr.data());
+      ClusterSizesPtr += arr.size();
+    }
     { // start values
       auto &arr = bdd.start_values;
       size_t offset = this->task->batchIdx * WORKGROUP_SIZE * 3 * sizeof(arr[0]);
@@ -234,6 +245,7 @@ void HuffmanLasData::process(Renderer *renderer) {
       size_t size = arr.size() * sizeof(arr[0]);
       glNamedBufferSubData(this->SeparateData.handle, offset, size, arr.data());
       SeparatePtr += arr.size();
+      cout << arr.size() << endl;
     }
     { // separate_offsets
       auto &arr = bdd.separate_offsets;
