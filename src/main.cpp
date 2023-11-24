@@ -276,8 +276,8 @@ int main(){
 		// setting.path_las = "F:/temp/wgtest/banyunibo_laserscans/merged.las";
 		// setting.path_las = "/home/rg/lidar_data/tree.las";
 		setting.path_las = "/home/rg/lidar_data/morro_bay.las";
-    // setting.path_huffman = "/home/rg/repos/compute_rasterizer/out/transpose.huffman";
-    setting.path_huffman = "/home/rg/repos/compute_rasterizer/out/data/transpose/transpose.huffman";
+    setting.path_huffman = "/home/rg/repos/compute_rasterizer/out/test.huffman";
+    // setting.path_huffman = "/home/rg/repos/compute_rasterizer/out/data/transpose/transpose.huffman";
 		// setting.path_las = "/home/rg/lidar_data/points.las";
 
 		// outside
@@ -359,11 +359,11 @@ int main(){
 	}
 
   { // Rahul's methods
-  //   auto basic1 = new BasicCuda(renderer.get(), las_basic);
+    auto basic1 = new BasicCuda(renderer.get(), las_basic);
   //   auto basic2 = new BasicCuda(renderer.get(), las_basic);
     auto huffman_cuda = new ComputeHuffman(renderer.get(), las_huffman);
     auto huffman_mem_iter_cuda = new HuffmanMemIter(renderer.get(), las_huffman);
-		// Runtime::addMethod((Method*) basic1);
+		Runtime::addMethod((Method*) basic1);
 		// Runtime::addMethod((Method*) basic2);
     Runtime::addMethod((Method*)huffman_cuda);
     Runtime::addMethod((Method*)huffman_mem_iter_cuda);
