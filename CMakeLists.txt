@@ -21,6 +21,7 @@ add_executable(${PROJECT_NAME}
   modules/compute/HuffmanLasLoader.cpp
   modules/compute/LasLoaderSparse.cpp
 )
+
 add_executable(rahul
   src/rahul.cpp
   src/Renderer.cpp
@@ -84,10 +85,9 @@ target_sources(rahul PRIVATE
 
 # GLFW
 # include(cmake/glfw.cmake)
-# target_include_directories(${PROJECT_NAME} PRIVATE
-# 	${glfw_SOURCE_DIR}/include)
 # target_link_libraries(${PROJECT_NAME} glfw)
 add_subdirectory(libs/glfw)
+target_include_directories(${PROJECT_NAME} PUBLIC libs/glfw/include)
 link_libraries(glfw)
 
 # glm
