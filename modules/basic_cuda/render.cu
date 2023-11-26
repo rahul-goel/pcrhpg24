@@ -125,9 +125,10 @@ void kernel(const ChangingRenderData data,
 	int loopSize = data.uPointsPerThread;	
   for (int i = 0; i < loopSize; ++i) {
     unsigned int pointIndex = wgFirstPoint + i * blockDim.x + threadIdx.x;
-    int X = ssXyz[pointIndex * 3 + 0];
-    int Y = ssXyz[pointIndex * 3 + 1];
-    int Z = ssXyz[pointIndex * 3 + 2];
+    unsigned int batchDataStart = wgFirstPoint * 3;
+    int X = ssXyz[batchDataStart + numPointerPerBatch * 0 + i * blockDim.x + threadIdx.x];
+    int Y = ssXyz[batchDataStart + numPointerPerBatch * 1 + i * blockDim.x + threadIdx.x];
+    int Z = ssXyz[batchDataStart + numPointerPerBatch * 2 + i * blockDim.x + threadIdx.x];
 
     float x = (float) X * uScale.x + uOffset.x - uboxMin.x;
     float y = (float) Y * uScale.y + uOffset.y - uboxMin.y;

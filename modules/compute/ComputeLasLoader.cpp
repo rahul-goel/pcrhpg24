@@ -316,7 +316,7 @@ void ComputeLasDataBasic::load(Renderer* renderer){
 				continue;
 			}
 
-			int pointsInBatch = std::min(pointsRemaining, MAX_POINTS_PER_BATCH);
+			int pointsInBatch = std::min(pointsRemaining, POINTS_PER_WORKGROUP);
 			int64_t start = int64_t(ref->offsetToPointData) + int64_t(ref->bytesPerPoint) * int64_t(pointsRead);
 			int64_t size = ref->bytesPerPoint * pointsInBatch;
 			auto buffer = readBinaryFile(ref->path, start, size);
@@ -395,8 +395,8 @@ void ComputeLasDataBasic::process(Renderer* renderer){
     }
 
     // host buffers
-    vector<int32_t> host_Xyz(4 * 3 * this->task->numPoints);
-    vector<uint32_t> host_Colors(4 * this->task->numPoints);
+    vector<int32_t> host_Xyz(3 * this->task->numPoints);
+    vector<uint32_t> host_Colors(this->task->numPoints);
 
     // iterate over all the points
     for (int pid = 0; pid < this->task->numPoints; ++pid) {
@@ -426,9 +426,12 @@ void ComputeLasDataBasic::process(Renderer* renderer){
       batchBoxMax.z = std::max(batchBoxMax.z, (double) z);
 
       // insert the data into the host buffers
-      host_Xyz[pid * 3 + 0] = X;
-      host_Xyz[pid * 3 + 1] = Y;
-      host_Xyz[pid * 3 + 2] = Z;
+      // host_Xyz[pid * 3 + 0] = X;
+      // host_Xyz[pid * 3 + 1] = Y;
+      // host_Xyz[pid * 3 + 2] = Z;
+      host_Xyz[this->task->numPoints * 0 + pid] = X;
+      host_Xyz[this->task->numPoints * 1 + pid] = Y;
+      host_Xyz[this->task->numPoints * 2 + pid] = Z;
       host_Colors[pid] = color;
     }
 
