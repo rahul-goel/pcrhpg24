@@ -559,7 +559,7 @@ struct Batch {
         fits_in_a_byte_freq += hfmn.frequencies.at(element);
       }
     }
-    cout << "\nless than a byte " << (double) fits_in_a_byte / HUFFMAN_TABLE_SIZE << endl;
+    cout << "\nless than a byte " << (double) fits_in_a_byte / already_seen.size() << endl;
     cout << "\npercentage " << (double) fits_in_a_byte_freq / (all_deltas.size()) << endl;
 
     for (int i = 0; i < HUFFMAN_TABLE_SIZE; ++i) {
@@ -696,8 +696,8 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
       futures.front().get();
       futures.pop();
       processed += 1;
-      printf("\r%f", (float) processed / batches.size());
-      fflush(stdout);
+      // printf("\r%f", (float) processed / batches.size());
+      // fflush(stdout);
     }
 
     auto lambda = [&batches, i] {
@@ -710,8 +710,8 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     futures.front().get();
     futures.pop();
     processed += 1;
-    printf("\r%f", (float) processed / batches.size());
-    fflush(stdout);
+    // printf("\r%f", (float) processed / batches.size());
+    // fflush(stdout);
   }
   cout << endl;
   cout << "Huffman Encoding done" << endl;
