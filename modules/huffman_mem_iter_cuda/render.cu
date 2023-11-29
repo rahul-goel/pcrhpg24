@@ -353,34 +353,23 @@ void kernel(const ChangingRenderData           cdata,
     for (int j = 0; j < ClusterSize; ++j) {
 
       // unsigned int L = cur_bits == 32 ? cw[cur_ptr] : (cw[cur_ptr] << (32 - cur_bits));
+      // seems like CUDA supports bitshift of 32, so above ternary operator is not required
       unsigned int L = (cw[cur_ptr] << (32 - cur_bits));
+
       // unsigned int R = (cur_ptr == 3 || cur_bits == 32) ? 0 : (cw[cur_ptr + 1] >> cur_bits);
+      // seems like CUDA supports bitshift of 32, so above ternary operator is not required
       unsigned int R = ((cur_ptr != 3 ? cw[cur_ptr + 1] : 0) >> cur_bits);
+
       unsigned int key = ((L|R) & mask) >> (32 - max_cw_size);
-      // unsigned int key = window >> (32 - max_cw_size);
 
 
       int symbol = Shared_DecoderTableValues[key];
       int cw_size = Shared_DecoderTableCWLen[key];
 
       decoded[decoded_cnt % 3] = (cw_size > 0 ? symbol : SeparateData[sep_ptr++]);
+      // decoded[decoded_cnt % 3] = (cw_size > 0) * symbol;
       cur_bits -= abs(cw_size);
       decoded_cnt += 1;
-
-      // int cw_size = Shared_DecoderTableCWLen[key];
-      // if (cw_size < 0) {
-      //   decoded[decoded_cnt % 3] = SeparateData[sep_ptr++];
-      // } else {
-      //   decoded[decoded_cnt % 3] = Shared_DecoderTableValues[key];
-      // }
-      // cur_bits -= abs(cw_size);
-      // decoded_cnt += 1;
-
-      // window <<= abs(cw_size);
-      // unsigned int R = (cur_ptr / 32 + 1) <= 3 ? cw[(cur_ptr / 32 + 1)] : 0;
-      // window |= (abs(cw_size) % 32 == 0 ? R : (R << cur_ptr) >> (32 - abs(cw_size)));
-      // cur_ptr += abs(cw_size);
-      // window |= cw[cur_ptr / 32 + 1] >> (32 - cur_ptr % 32);
 
       int inc = cur_bits <= 0;
       cur_ptr += inc;

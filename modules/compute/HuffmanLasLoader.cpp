@@ -245,7 +245,6 @@ void HuffmanLasData::process(Renderer *renderer) {
       size_t size = arr.size() * sizeof(arr[0]);
       glNamedBufferSubData(this->SeparateData.handle, offset, size, arr.data());
       SeparatePtr += arr.size();
-      cout << arr.size() << endl;
     }
     { // separate_offsets
       auto &arr = bdd.separate_offsets;
