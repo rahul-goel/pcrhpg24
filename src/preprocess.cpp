@@ -482,17 +482,17 @@ struct Batch {
     }
 
     // calculate the amount of wasted space
-    {
-      long long og_bits = 0, total_bits = 0;
-      for (int tid = 0; tid < WORKGROUP_SIZE; ++tid) {
-        auto &sz = all_sizes[tid];
-        og_bits += accumulate(sz.begin(), sz.end(), 0ll);
-      }
-      total_bits += WORKGROUP_SIZE * cluster_sizes.size() * 4 * 32;
+    // {
+    //   long long og_bits = 0, total_bits = 0;
+    //   for (int tid = 0; tid < WORKGROUP_SIZE; ++tid) {
+    //     auto &sz = all_sizes[tid];
+    //     og_bits += accumulate(sz.begin(), sz.end(), 0ll);
+    //   }
+    //   total_bits += WORKGROUP_SIZE * cluster_sizes.size() * 4 * 32;
 
-      double wasted = (double) (total_bits - og_bits) / total_bits;
-      cout << "\nwasted space " << wasted << "\n";
-    }
+    //   double wasted = (double) (total_bits - og_bits) / total_bits;
+    //   cout << "\nwasted space " << wasted << "\n";
+    // }
 
     // calculate the percentage of the separate data
     // {

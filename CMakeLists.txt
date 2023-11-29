@@ -22,18 +22,18 @@ add_executable(${PROJECT_NAME}
   modules/compute/LasLoaderSparse.cpp
 )
 
-add_executable(rahul
-  src/rahul.cpp
-  src/Renderer.cpp
-  src/Framebuffer.cpp
-  src/GLTimerQueries.cpp
-  src/OrbitControls.cpp
-  src/Texture.cpp
-  include/unsuck_platform_specific.cpp
-  modules/compute/ComputeLasLoader.cpp
-  modules/compute/HuffmanLasLoader.cpp
-  modules/compute/LasLoaderSparse.cpp
-)
+# add_executable(rahul
+#   src/rahul.cpp
+#   src/Renderer.cpp
+#   src/Framebuffer.cpp
+#   src/GLTimerQueries.cpp
+#   src/OrbitControls.cpp
+#   src/Texture.cpp
+#   include/unsuck_platform_specific.cpp
+#   modules/compute/ComputeLasLoader.cpp
+#   modules/compute/HuffmanLasLoader.cpp
+#   modules/compute/LasLoaderSparse.cpp
+# )
 
 add_executable(test_huffman
   src/test_huffman.cpp
@@ -78,10 +78,10 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 	libs/glew/include)
 target_sources(${PROJECT_NAME} PRIVATE
 	libs/glew/glew.c)
-target_include_directories(rahul PRIVATE
-	libs/glew/include)
-target_sources(rahul PRIVATE
-	libs/glew/glew.c)
+# target_include_directories(rahul PRIVATE
+# 	libs/glew/include)
+# target_sources(rahul PRIVATE
+# 	libs/glew/glew.c)
 
 # GLFW
 # include(cmake/glfw.cmake)
@@ -109,29 +109,29 @@ target_sources(${PROJECT_NAME} PRIVATE
 	libs/imgui/imgui_widgets.cpp
 	libs/imgui/backends/imgui_impl_glfw.cpp
 	libs/imgui/backends/imgui_impl_opengl3.cpp)
-target_sources(rahul PRIVATE
-	libs/imgui/imgui.cpp
-	libs/imgui/imgui_demo.cpp
-	libs/imgui/imgui_draw.cpp
-	libs/imgui/imgui_tables.cpp
-	libs/imgui/imgui_widgets.cpp
-	libs/imgui/backends/imgui_impl_glfw.cpp
-	libs/imgui/backends/imgui_impl_opengl3.cpp)
+# target_sources(rahul PRIVATE
+# 	libs/imgui/imgui.cpp
+# 	libs/imgui/imgui_demo.cpp
+# 	libs/imgui/imgui_draw.cpp
+# 	libs/imgui/imgui_tables.cpp
+# 	libs/imgui/imgui_widgets.cpp
+# 	libs/imgui/backends/imgui_impl_glfw.cpp
+# 	libs/imgui/backends/imgui_impl_opengl3.cpp)
 
 # implot
 include_directories(libs/implot)
 target_sources(${PROJECT_NAME} PRIVATE
 	libs/implot/implot_items.cpp
 	libs/implot/implot.cpp)
-target_sources(rahul PRIVATE
-	libs/implot/implot_items.cpp
-	libs/implot/implot.cpp)
+# target_sources(rahul PRIVATE
+# 	libs/implot/implot_items.cpp
+# 	libs/implot/implot.cpp)
 
 # laszip
 add_subdirectory(libs/laszip)
 target_link_libraries(${PROJECT_NAME} laszip)
 target_include_directories(${PROJECT_NAME} PRIVATE
 	libs/laszip)
-target_link_libraries(rahul laszip)
-target_include_directories(rahul PRIVATE
-	libs/laszip)
+# target_link_libraries(rahul laszip)
+# target_include_directories(rahul PRIVATE
+# 	libs/laszip)
