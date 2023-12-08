@@ -276,7 +276,7 @@ void kernel(const ChangingRenderData           cdata,
   // if (threadIdx.x < 32 or threadIdx.x >= 64) return;
   // if (blockIdx.x >= 1) return;
   // if (blockIdx.x <= 0 or blockIdx.x >= 2) return;
-  for (int i = 0; i < cdata.uPointsPerThread; ++i) {
+  for (int i = 0; i < NumPointsToRender; ++i) {
   // for (int i = 0; i < 20; ++i) {
     int decoded[3];
     for (int j = 0; j < 3; ++j) {
