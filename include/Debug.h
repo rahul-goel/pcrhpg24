@@ -27,6 +27,7 @@ struct Debug{
 	inline static bool requestResetView = false;
 	inline static bool colorizeChunks = false;
 	inline static bool colorizeOverdraw = false;
+  inline static bool showNumPoints = false;
 
 
 

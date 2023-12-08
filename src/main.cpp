@@ -292,6 +292,11 @@ int main(){
 		setting.radius = 1.87;
 		setting.target = {41.44, 31.27, 4.31};
 
+		setting.yaw = -0.15;
+		setting.pitch = -0.57;
+		setting.radius = 3166.32;
+		setting.target = {2239.05, 1713.63, -202.02};
+
 		settings["arbegen"] = setting;
 	}
 
@@ -347,14 +352,14 @@ int main(){
 		auto computeLoopLas2      = new ComputeLoopLas2(renderer.get(), las_encode_444);
 		// auto computeLoopLasHqs    = new ComputeLoopLasHqs(renderer.get(), las_encode_444);
 		// auto computeLoopLasHqsVR  = new ComputeLoopLasHqsVR(renderer.get(), las_encode_444);
-		// auto computeCUDALas       = new ComputeLoopLasCUDA(renderer.get(), las_encode_444);
+		auto computeCUDALas       = new ComputeLoopLasCUDA(renderer.get(), las_encode_444);
   //   auto experimental         = new Experimental(renderer.get(), las_encode_444);
 
 		Runtime::addMethod((Method*)computeLoopLas);
 		Runtime::addMethod((Method*)computeLoopLas2);
 		// Runtime::addMethod((Method*)computeLoopLasHqs);
 		// Runtime::addMethod((Method*)computeLoopLasHqsVR);
-		// Runtime::addMethod((Method*)computeCUDALas);
+		Runtime::addMethod((Method*)computeCUDALas);
 		// Runtime::addMethod((Method*)experimental);
 	}
 

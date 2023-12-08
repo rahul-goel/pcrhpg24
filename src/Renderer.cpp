@@ -1,3 +1,5 @@
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
 
 #include "Renderer.h"
 
@@ -87,6 +89,21 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 	
 
 	_controls->onMouseButton(button, action, mods);
+}
+
+void saveImage(char *filepath, GLFWwindow *w) {
+  int width, height;
+  glfwGetFramebufferSize(w, &width, &height);
+  GLsizei nrChannels = 3;
+  GLsizei stride = nrChannels * width;
+  stride += (stride % 4) ? (4 - stride % 4) : 0;
+  GLsizei bufferSize = stride * height;
+  std::vector<char> buffer(bufferSize);
+  glPixelStorei(GL_PACK_ALIGNMENT, 4);
+  glReadBuffer(GL_FRONT);
+  glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, buffer.data());
+  stbi_flip_vertically_on_write(true);
+  stbi_write_png(filepath, width, height, nrChannels, buffer.data(), stride);
 }
 
 Renderer::Renderer(){
@@ -524,6 +541,13 @@ void Renderer::loop(function<void(void)> update, function<void(void)> render){
 			}
 
 			{
+				static bool checked = Debug::showNumPoints; 
+				ImGui::Checkbox("show num points", &checked);
+
+				Debug::showNumPoints = checked;
+			}
+
+			{
 				static bool checked = Debug::colorizeOverdraw; 
 				ImGui::Checkbox("colorize overdraw", &checked);
 
@@ -573,6 +597,12 @@ void Renderer::loop(function<void(void)> update, function<void(void)> render){
 			if (ImGui::Button("Read Batches")) {
 				this->readBatches();
 			}
+
+      if (ImGui::Button("Save Image")) {
+        glBindFramebuffer(GL_FRAMEBUFFER, views[0].framebuffer->handle);
+        saveImage("out/image.png", window);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+      }
 
 
 			ImGui::End();

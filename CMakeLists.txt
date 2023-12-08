@@ -127,6 +127,10 @@ target_sources(${PROJECT_NAME} PRIVATE
 # 	libs/implot/implot_items.cpp
 # 	libs/implot/implot.cpp)
 
+# stb
+include_directories(libs/stb)
+link_directories(libs/stb)
+
 # laszip
 add_subdirectory(libs/laszip)
 target_link_libraries(${PROJECT_NAME} laszip)

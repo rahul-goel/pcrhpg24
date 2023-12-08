@@ -208,6 +208,8 @@ struct HuffmanMemIter : public Method {
 			cdata.uScale = float3{0, 0, 0};
 			cdata.uBoxMax = float3{0, 0, 0};
 			cdata.uEnableFrustumCulling = Debug::frustumCullingEnabled;
+      cdata.colorizeChunks = Debug::colorizeChunks;
+      cdata.showNumPoints = Debug::showNumPoints;
 
 			// don't execute a workgroup until all points inside are loaded
 			// workgroup only iterates over the source buffer once, 
@@ -242,7 +244,9 @@ struct HuffmanMemIter : public Method {
 
       int groups_x = fbo->width / 16;
       int groups_y = fbo->height / 16;
-      void *args[] = { &fbo->width, &fbo->height, &output_surf, &fb, &Colors_ptr };
+      int showNumPoints = Debug::showNumPoints;
+      int colorizeChunks = Debug::colorizeChunks;
+      void *args[] = { &showNumPoints, &colorizeChunks, &fbo->width, &fbo->height, &output_surf, &fb, &Colors_ptr };
 
 			cuLaunchKernel(resolveProg->kernel,
 				groups_x, groups_y, 1,

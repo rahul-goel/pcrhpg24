@@ -69,6 +69,8 @@ struct ChangingRenderData{
 	float3 uScale;
 	
 	int uEnableFrustumCulling;
+  int showNumPoints;
+  int colorizeChunks;
 };
 
 #endif
