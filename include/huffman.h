@@ -218,7 +218,8 @@ struct Huffman {
   }
 
   template<typename udtype, typename Iterator, typename delta_dtype>
-  pair<vector<udtype>,vector<delta_dtype>> compress_udtype_subarray_fast_pjn_idea(Iterator begin, Iterator end, unordered_map<T, pair<udtype,int>> &collapsed_dictionary, int table_size) {
+  tuple<vector<udtype>,vector<delta_dtype>,vector<int>>
+  compress_udtype_subarray_fast_pjn_idea(Iterator begin, Iterator end, unordered_map<T, pair<udtype,int>> &collapsed_dictionary, int table_size) {
     vector<udtype> vec;                                         // final vector that stores the values in the specified data type
     const int udtype_num_bits = 8 * sizeof(udtype);             // number of bits in the data type
     udtype chunk = 0;                                           // element that reprsents the current value to be pushed into the final vector
@@ -227,6 +228,8 @@ struct Huffman {
     int max_cw_size = (int) log2(table_size);
     assert(max_cw_size <= udtype_num_bits);                     // else function will not work
 
+    vector<int> num_cw;
+    int cnt_cw = 0;
     vector<delta_dtype> separate_data;
     udtype mask;
     for (Iterator it = begin; it != end; ++it) {
@@ -243,6 +246,11 @@ struct Huffman {
         separate_data.push_back(symbol);
       }
 
+      // if this codeword exceeds the remaining bits
+      // or if we're starting afresh on a new uint
+      // it means that this index requires a new uint
+      ++cnt_cw;
+
       while (cw_rem_bits) {
         int min_bits = min(chunk_rem_bits, cw_rem_bits);
         mask = (((udtype) 1 << cw_rem_bits) - 1) - (((udtype) 1 << (cw_rem_bits - min_bits)) - 1);
@@ -255,15 +263,18 @@ struct Huffman {
           vec.push_back(chunk);
           chunk = 0;
           chunk_rem_bits = udtype_num_bits;
+          num_cw.push_back(cnt_cw);
         }
       }
     }
 
     if (chunk_rem_bits < udtype_num_bits) {
       vec.push_back(chunk);
+      num_cw.push_back(cnt_cw);
     }
 
-    return {vec, separate_data};
+    assert(vec.size() == num_cw.size());
+    return {vec, separate_data, num_cw};
   }
 
   glm::uvec4 get_uvec4(vector<uint32_t> &vec, vector<int> &lengths) {

@@ -50,7 +50,7 @@ void test_huffman(string T_str, string udtype_str, int num_points) {
   vector<T> decoded(data.size());
   hfmn.template decompress_udtype_subarray_fast_pjn_idea<
       udtype, typename vector<T>::iterator, T>(
-      decoded.begin(), decoded.end(), encoded.first, encoded.second, table);
+      decoded.begin(), decoded.end(), std::get<0>(encoded), std::get<1>(encoded), table);
 
   bool equal = (decoded == data);
   {

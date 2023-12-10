@@ -188,6 +188,7 @@ struct Chain {
   vector<int32_t> decoded;
   
   pair<vector<uint32_t>,vector<int32_t>> encoded_markus;
+  vector<int> step_idx;
   vector<int32_t> decoded_markus;
 
   Chain(int point_offset, int num_points,
@@ -250,10 +251,14 @@ struct Chain {
       encoded_markus.first.clear();
       encoded_markus.second.clear();
 
-      encoded_markus = hfmn.compress_udtype_subarray_fast_pjn_idea<
+      // encoded_markus = hfmn.compress_udtype_subarray_fast_pjn_idea;
+      auto ret = hfmn.compress_udtype_subarray_fast_pjn_idea<
         uint32_t, typename vector<int32_t>::iterator, int32_t>(
           delta_interleaved.begin(), delta_interleaved.end(), collapsed_dict,
           HUFFMAN_TABLE_SIZE);
+      encoded_markus.first = std::get<0>(ret);
+      encoded_markus.second = std::get<1>(ret);
+      step_idx = std::get<2>(ret);
     }
   }
 
@@ -364,6 +369,7 @@ struct Batch {
   method_type method;
   float compression_ratio;
   vector<int> cluster_sizes;
+  vector<uint32_t> packed_warps[WORKGROUP_SIZE / 32];
 
   int32_t bbox_min[3];
   int32_t bbox_max[3];
@@ -424,6 +430,53 @@ struct Batch {
     }
 
     return codeword_chunk;
+  }
+
+  void encode_decode_bernhard(Huffman<int32_t> &hfmn) {
+    assert(WORKGROUP_SIZE % 32 == 0);
+
+    cluster_sizes.clear();
+    for (int wid = 0; wid < WORKGROUP_SIZE / 32; ++wid) {
+      int StartThreadIdx = wid * 32;
+
+      for (int warp_tid = 0; warp_tid < 32; ++warp_tid) {
+        chains[StartThreadIdx + warp_tid].hfmn_ptr = &hfmn;
+        chains[StartThreadIdx + warp_tid].encode(dictionary);
+      }
+
+      // SLIDING WINDOW of size 2
+      vector<pair<pair<int,int>,int>> pairs;
+      for (int warp_tid = 0; warp_tid < 32; ++warp_tid) {
+        pairs.push_back({{-1, warp_tid}, 0});
+        pairs.push_back({{0, warp_tid}, 1});
+      }
+
+      for (int warp_tid = 0; warp_tid < 32; ++warp_tid) {
+        auto &step_idx = chains[StartThreadIdx + warp_tid].step_idx;
+        for (int i = 2; i < step_idx.size(); ++i) {
+          pairs.push_back({{step_idx[i - 2], warp_tid}, i});
+        }
+      }
+      sort(pairs.begin(), pairs.end());
+
+      vector<uint32_t> packed;
+      for (auto &p : pairs) {
+        int warp_tid = p.first.second;
+        int chunk_idx = p.second;
+        packed.push_back(chains[StartThreadIdx + warp_tid].encoded_markus.first[chunk_idx]);
+      }
+      packed_warps[wid] = packed;
+      cluster_sizes.push_back(packed.size());
+
+      for (int warp_tid = 0; warp_tid < 32; ++warp_tid) {
+        chains[StartThreadIdx + warp_tid].decode(decoder_table);
+        chains[StartThreadIdx + warp_tid].assert_delta_interleaved_decoded();
+      }
+    }
+
+    for (int wid = 1; wid < WORKGROUP_SIZE / 32; ++wid) {
+      cluster_sizes[wid] += cluster_sizes[wid - 1];
+    }
   }
 
   void encode_decode_rahul(Huffman<int32_t> &hfmn) {
@@ -546,26 +599,26 @@ struct Batch {
     }
     hfmn.clear_huffman_tree();
 
-    int fits_in_a_byte = 0;
-    long long fits_in_a_byte_freq = 0;
-    unordered_set<int> already_seen;
-    for (int i = 0; i < HUFFMAN_TABLE_SIZE; ++i) {
-      auto &element = decoder_table[i].first;
-      if (already_seen.find(element) != already_seen.end()) continue;
-      already_seen.insert(element);
-      bool f = (element <= 127) and (element >= -128);
-      fits_in_a_byte += f;
-      if (f) {
-        fits_in_a_byte_freq += hfmn.frequencies.at(element);
-      }
-    }
-    cout << "\nless than a byte " << (double) fits_in_a_byte / already_seen.size() << endl;
-    cout << "\npercentage " << (double) fits_in_a_byte_freq / (all_deltas.size()) << endl;
+    // int fits_in_a_byte = 0;
+    // long long fits_in_a_byte_freq = 0;
+    // unordered_set<int> already_seen;
+    // for (int i = 0; i < HUFFMAN_TABLE_SIZE; ++i) {
+    //   auto &element = decoder_table[i].first;
+    //   if (already_seen.find(element) != already_seen.end()) continue;
+    //   already_seen.insert(element);
+    //   bool f = (element <= 127) and (element >= -128);
+    //   fits_in_a_byte += f;
+    //   if (f) {
+    //     fits_in_a_byte_freq += hfmn.frequencies.at(element);
+    //   }
+    // }
+    // cout << "\nless than a byte " << (double) fits_in_a_byte / already_seen.size() << endl;
+    // cout << "\npercentage " << (double) fits_in_a_byte_freq / (all_deltas.size()) << endl;
 
-    for (int i = 0; i < HUFFMAN_TABLE_SIZE; ++i) {
-      auto &element = decoder_table[i].first;
-      fits_in_a_byte += (element <= 127) and (element >= -128);
-    }
+    // for (int i = 0; i < HUFFMAN_TABLE_SIZE; ++i) {
+    //   auto &element = decoder_table[i].first;
+    //   fits_in_a_byte += (element <= 127) and (element >= -128);
+    // }
 
     // float old_size = 0;
     // float new_size = 0;
@@ -574,7 +627,7 @@ struct Batch {
     //   chains[i].encode(dictionary);
     // }
 
-    // // get max chain size
+    // // // get max chain size
     // int max_size = chains[0].get_encoded_size();
     // for (int i = 1; i < WORKGROUP_SIZE; ++i)
     //   max_size = max(max_size, chains[i].get_encoded_size());
@@ -589,7 +642,7 @@ struct Batch {
 
     float old_size = 0;
     float new_size = 0;
-    encode_decode_rahul(hfmn);
+    encode_decode_bernhard(hfmn);
     for (int i = 0; i < WORKGROUP_SIZE; ++i) {
       old_size += chains[i].get_og_size();
       new_size += chains[i].get_compressed_size();
@@ -696,8 +749,8 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
       futures.front().get();
       futures.pop();
       processed += 1;
-      // printf("\r%f", (float) processed / batches.size());
-      // fflush(stdout);
+      printf("\r%f", (float) processed / batches.size());
+      fflush(stdout);
     }
 
     auto lambda = [&batches, i] {
@@ -710,8 +763,8 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     futures.front().get();
     futures.pop();
     processed += 1;
-    // printf("\r%f", (float) processed / batches.size());
-    // fflush(stdout);
+    printf("\r%f", (float) processed / batches.size());
+    fflush(stdout);
   }
   cout << endl;
   cout << "Huffman Encoding done" << endl;
@@ -806,23 +859,10 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     // encoding
     bdd.encoding_offsets.resize(WORKGROUP_SIZE);
     bdd.encoding_sizes.resize(WORKGROUP_SIZE);
-    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
-      auto &src = b.chains[i].encoded_markus.first;
+    for (int wid = 0; wid < WORKGROUP_SIZE / 32; ++wid) {
+      auto &src = b.packed_warps[wid];
       auto &dst = bdd.encoding;
-      bdd.encoding_offsets[i] = dst.size();
       dst.insert(dst.end(), src.begin(), src.end());
-      bdd.encoding_sizes[i] = dst.size() - bdd.encoding_offsets[i];
-    }
-    if (TRANSPOSE) {
-      auto src = bdd.encoding;
-      auto &dst = bdd.encoding;
-      int size = b.chains[0].get_encoded_size();
-      assert(size % 4 == 0);
-      for (int i = 0; i < WORKGROUP_SIZE; ++i) {
-        for (int j = 0; j < size; ++j) {
-          dst[j * WORKGROUP_SIZE + i] = src[i * size + j];
-        }
-      }
     }
     // int len = b.chains[0].encoded_markus.first.size();
     // auto &dst = bdd.encoding;
@@ -838,6 +878,10 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     //   bdd.encoding_offsets[tid] = 0;
     //   bdd.encoding_sizes[tid] = len;
     // }
+
+    for (int tid = 0; tid < WORKGROUP_SIZE; ++tid) {
+      bdd.encoding_sizes[tid] = b.chains[tid].encoded_markus.first.size();
+    }
 
     // separate
     bdd.separate_offsets.resize(WORKGROUP_SIZE);
