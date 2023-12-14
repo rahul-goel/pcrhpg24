@@ -231,12 +231,16 @@ void kernel(const ChangingRenderData           cdata,
     // percentage = max(percentage, 0.1);
     // if (pixelSize > 0.8) percentage = 1.0;
 
+    pixelSize /= 100.0;
     percentage = (1.8f * pixelSize - 0.3);
     percentage = clamp(percentage, 0.1f, 1.0f);
     Shared_NumPointsToRender = min((int) (percentage * cdata.uPointsPerThread), cdata.uPointsPerThread);
+    // printf("pixelSize %f percentage %f\n", pixelSize, percentage);
   }
   __syncthreads();
   int NumPointsToRender = Shared_NumPointsToRender;
+  // if (threadIdx.x == 0) printf("numpointstorender %d\n", NumPointsToRender);
+  // return;
 
 
   int3 prev_values = make_int3(StartValues[globalThreadIdx * 3 + 0],
