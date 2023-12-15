@@ -16,6 +16,7 @@ add_executable(${PROJECT_NAME}
   src/GLTimerQueries.cpp
   src/OrbitControls.cpp
   src/Texture.cpp
+  src/miniz.c
   include/unsuck_platform_specific.cpp
   modules/compute/ComputeLasLoader.cpp
   modules/compute/HuffmanLasLoader.cpp

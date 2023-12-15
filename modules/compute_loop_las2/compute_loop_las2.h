@@ -26,6 +26,7 @@
 #include "GLTimerQueries.h"
 #include "Method.h"
 #include "compute/ComputeLasLoader.h"
+#include "tinyexr.h"
 
 using namespace std;
 using namespace std::chrono_literals;
@@ -57,6 +58,9 @@ struct ComputeLoopLas2 : public Method{
 		uint32_t numNodesRendered = 0;
 		uint32_t numPointsVisible = 0;
 	};
+
+  // optional saving of depth image
+  vector<float> depthmap;
 
 	string source = "";
 	Shader* csRender = nullptr;
@@ -102,6 +106,52 @@ struct ComputeLoopLas2 : public Method{
 		glClearNamedBufferData(ssDebug.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 		glClearNamedBufferData(ssBoundingBoxes.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 	}
+
+  bool saveSingleChannelEXR(const char* filename, const float* depthData, int width, int height) {
+    // Define image attributes
+    EXRHeader header;
+    InitEXRHeader(&header);
+
+    EXRImage image;
+    InitEXRImage(&image);
+
+    // Set image data in EXRImage struct
+    image.num_channels = 1;  // Single channel for depth
+    image.width = width;
+    image.height = height;
+    image.images = (unsigned char**)(&depthData);
+
+    header.num_channels = 1;
+    header.channels = (EXRChannelInfo*)malloc(sizeof(EXRChannelInfo) * header.num_channels);
+    header.pixel_types = (int*)malloc(sizeof(int) * header.num_channels);
+    header.requested_pixel_types = (int*)malloc(sizeof(int) * header.num_channels);
+
+    // Specify channel information for depth
+    strncpy(header.channels[0].name, "Z", sizeof(header.channels[0].name));
+    header.channels[0].name[sizeof(header.channels[0].name) - 1] = '\0';
+    header.channels[0].pixel_type = TINYEXR_PIXELTYPE_FLOAT;  // Using float pixel type
+    header.channels[0].p_linear = 0;
+    header.pixel_types[0] = TINYEXR_PIXELTYPE_FLOAT;
+    header.requested_pixel_types[0] = TINYEXR_PIXELTYPE_FLOAT;
+
+    // Save EXR image
+    const char* err = nullptr;
+    int ret = SaveEXRImageToFile(&image, &header, filename, &err);
+
+    // Clean up
+    free(header.channels);
+    free(header.pixel_types);
+    free(header.requested_pixel_types);
+
+    if (ret != TINYEXR_SUCCESS) {
+      printf("Error saving EXR file: %s\n", err);
+      free((void *) err);
+      return false;
+    }
+
+    return true;
+  }
+
 	
 	void update(Renderer* renderer){
 
@@ -191,6 +241,32 @@ struct ComputeLoopLas2 : public Method{
 
 			GLTimerQueries::timestamp("draw-end");
 		}
+
+    // saving depthmap
+    if (Debug::saveDepthMap) {
+      vector<uint64_t> fb_host(fbo->height * fbo->width);
+			glBindFramebuffer(GL_FRAMEBUFFER, ssFramebuffer.handle);
+      // glReadPixels(0, 0, fbo->width, fbo->height, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT64_NV, fb_host.data());
+      glGetNamedBufferSubData(ssFramebuffer.handle, 0, fbo->height * fbo->width * 8, fb_host.data());
+      glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+      bool seen = false;
+
+      depthmap.clear();
+      depthmap.resize(fbo->height * fbo->width, 0);
+      for (int i = 0; i < fbo->height; ++i) {
+        for (int j = 0; j < fbo->width; ++j) {
+          unsigned int value = fb_host[i * fbo->width + j] >> 32;
+          float fvalue = *((float *) &value);
+          if (fvalue < 0) continue;
+          depthmap[(fbo->height - i - 1) * fbo->width + j] = fvalue;
+          // cout << *((float *) &value) << endl;
+        }
+      }
+
+      saveSingleChannelEXR("out/depth.exr", depthmap.data(), fbo->width, fbo->height);
+      Debug::saveDepthMap = false;
+    }
 
 		// RESOLVE
 		if(csResolve->program != -1){

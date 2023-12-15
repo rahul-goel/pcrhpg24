@@ -604,6 +604,10 @@ void Renderer::loop(function<void(void)> update, function<void(void)> render){
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
       }
 
+      if (ImGui::Button("Save Depth Map")) {
+        Debug::saveDepthMap = true;
+      }
+
 
 			ImGui::End();
 		}

@@ -16,11 +16,17 @@
 #include "huffman_cuda/huffman_kernel_data.h"
 #include "compute_loop_las_cuda/kernel_data.h"
 
+#define TINYEXR_IMPLEMENTATION
+#include "tinyexr.h"
+
 using namespace std;
 
 struct HuffmanMemIter : public Method {
   bool registered = false;
   bool mapped = false;
+
+  // optional saving of depth image
+  vector<float> depthmap;
 
   CudaProgram* resolveProg = nullptr;
   CudaProgram* renderProg  = nullptr;
@@ -106,6 +112,51 @@ struct HuffmanMemIter : public Method {
       cuGraphicsUnregisterResource(Colors);
       cuGraphicsUnregisterResource(output);
 		}
+  }
+
+  bool saveSingleChannelEXR(const char* filename, const float* depthData, int width, int height) {
+    // Define image attributes
+    EXRHeader header;
+    InitEXRHeader(&header);
+
+    EXRImage image;
+    InitEXRImage(&image);
+
+    // Set image data in EXRImage struct
+    image.num_channels = 1;  // Single channel for depth
+    image.width = width;
+    image.height = height;
+    image.images = (unsigned char**)(&depthData);
+
+    header.num_channels = 1;
+    header.channels = (EXRChannelInfo*)malloc(sizeof(EXRChannelInfo) * header.num_channels);
+    header.pixel_types = (int*)malloc(sizeof(int) * header.num_channels);
+    header.requested_pixel_types = (int*)malloc(sizeof(int) * header.num_channels);
+
+    // Specify channel information for depth
+    strncpy(header.channels[0].name, "Z", sizeof(header.channels[0].name));
+    header.channels[0].name[sizeof(header.channels[0].name) - 1] = '\0';
+    header.channels[0].pixel_type = TINYEXR_PIXELTYPE_FLOAT;  // Using float pixel type
+    header.channels[0].p_linear = 0;
+    header.pixel_types[0] = TINYEXR_PIXELTYPE_FLOAT;
+    header.requested_pixel_types[0] = TINYEXR_PIXELTYPE_FLOAT;
+
+    // Save EXR image
+    const char* err = nullptr;
+    int ret = SaveEXRImageToFile(&image, &header, filename, &err);
+
+    // Clean up
+    free(header.channels);
+    free(header.pixel_types);
+    free(header.requested_pixel_types);
+
+    if (ret != TINYEXR_SUCCESS) {
+      printf("Error saving EXR file: %s\n", err);
+      free((void *) err);
+      return false;
+    }
+
+    return true;
   }
 
   void update(Renderer* renderer) {
@@ -229,6 +280,29 @@ struct HuffmanMemIter : public Method {
 				WORKGROUP_SIZE, 1, 1,
 				0, 0, args, 0);
       // cout << "kernel terminated " << opt << endl;
+    }
+
+    // saving depthmap
+    if (Debug::saveDepthMap) {
+      vector<uint64_t> fb_host(fbo->height * fbo->width);
+      cuMemcpyDtoH(fb_host.data(), fb, fbo->height * fbo->width * 8);
+
+      bool seen = false;
+
+      depthmap.clear();
+      depthmap.resize(fbo->height * fbo->width, 0);
+      for (int i = 0; i < fbo->height; ++i) {
+        for (int j = 0; j < fbo->width; ++j) {
+          unsigned int value = fb_host[i * fbo->width + j] >> 32;
+          if (value == 0xFFFFFFFF) continue;
+          depthmap[(fbo->height - i - 1) * fbo->width + j] = *((float *) &value);
+          // cout << *((float *) &value) << endl;
+        }
+      }
+
+      // saveDepthMapToEXR("out/depth.png", fbo->width, fbo->height, depthmap);
+      saveSingleChannelEXR("out/depth.exr", depthmap.data(), fbo->width, fbo->height);
+      Debug::saveDepthMap = false;
     }
 
     // RESOLVE

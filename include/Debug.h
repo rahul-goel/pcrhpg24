@@ -28,6 +28,7 @@ struct Debug{
 	inline static bool colorizeChunks = false;
 	inline static bool colorizeOverdraw = false;
   inline static bool showNumPoints = false;
+  inline static bool saveDepthMap = false;
 
 
 
