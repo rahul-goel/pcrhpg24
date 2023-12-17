@@ -18,6 +18,7 @@
 #include "basic_cuda/basic_cuda.h"
 #include "huffman_cuda/huffman_cuda.h"
 #include "huffman_mem_iter_cuda/huffman_mem_iter_cuda.h"
+#include "huffman_hqs/huffman_hqs.h"
 #include "compute_loop_las_hqs/compute_loop_las_hqs.h"
 // #include "compute_loop_las_hqs_vr/compute_loop_las_hqs_vr.h"
 // #include "compute_loop_nodes/compute_loop_nodes.h"
@@ -350,14 +351,14 @@ int main(){
 	{ // 4-4-4 byte format
 		auto computeLoopLas       = new ComputeLoopLas(renderer.get(), las_encode_444);
 		auto computeLoopLas2      = new ComputeLoopLas2(renderer.get(), las_encode_444);
-		// auto computeLoopLasHqs    = new ComputeLoopLasHqs(renderer.get(), las_encode_444);
+		auto computeLoopLasHqs    = new ComputeLoopLasHqs(renderer.get(), las_encode_444);
 		// auto computeLoopLasHqsVR  = new ComputeLoopLasHqsVR(renderer.get(), las_encode_444);
 		auto computeCUDALas       = new ComputeLoopLasCUDA(renderer.get(), las_encode_444);
   //   auto experimental         = new Experimental(renderer.get(), las_encode_444);
 
 		Runtime::addMethod((Method*)computeLoopLas);
 		Runtime::addMethod((Method*)computeLoopLas2);
-		// Runtime::addMethod((Method*)computeLoopLasHqs);
+		Runtime::addMethod((Method*)computeLoopLasHqs);
 		// Runtime::addMethod((Method*)computeLoopLasHqsVR);
 		Runtime::addMethod((Method*)computeCUDALas);
 		// Runtime::addMethod((Method*)experimental);
@@ -368,10 +369,13 @@ int main(){
   //   auto basic2 = new BasicCuda(renderer.get(), las_basic);
     auto huffman_cuda = new ComputeHuffman(renderer.get(), las_huffman);
     auto huffman_mem_iter_cuda = new HuffmanMemIter(renderer.get(), las_huffman);
+    auto huffman_hqs = new HuffmanHQS(renderer.get(), las_huffman);
+
 		Runtime::addMethod((Method*) basic1);
 		// Runtime::addMethod((Method*) basic2);
     Runtime::addMethod((Method*)huffman_cuda);
     Runtime::addMethod((Method*)huffman_mem_iter_cuda);
+    Runtime::addMethod((Method*)huffman_hqs);
   }
 
 	{ // POTREE FORMAT
