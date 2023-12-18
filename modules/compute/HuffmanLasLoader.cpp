@@ -260,7 +260,8 @@ void HuffmanLasData::process(Renderer *renderer) {
     }
     { // color
       auto &arr = bdd.color;
-      size_t offset = this->task->batchIdx * POINTS_PER_WORKGROUP * sizeof(arr[0]);
+      // size_t offset = this->task->batchIdx * POINTS_PER_WORKGROUP * sizeof(arr[0]);
+      size_t offset = (this->task->batchIdx * POINTS_PER_WORKGROUP * sizeof(arr[0])) / 8;
       size_t size = arr.size() * sizeof(arr[0]);
       glNamedBufferSubData(this->Colors.handle, offset, size, arr.data());
     }

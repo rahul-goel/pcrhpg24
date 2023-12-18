@@ -136,7 +136,8 @@ struct BatchDumpData {
 
     encoding.resize(accumulate(encoding_sizes.begin(), encoding_sizes.end(), 0ll));
     separate.resize(accumulate(separate_sizes.begin(), separate_sizes.end(), 0ll));
-    color.resize(num_points);
+    // color.resize(num_points);
+    color.resize(num_points / 8);
 
     // Huffman Encoded Data
     memcpy(encoding.data(), buf_ptr + offset, encoding.size() * 4);

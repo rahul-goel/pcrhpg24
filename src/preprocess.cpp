@@ -11,6 +11,9 @@
 #include "glm/common.hpp"
 #include "glm/matrix.hpp"
 
+#define RGBCX_IMPLEMENTATION
+#include "rgbcx.h"
+
 using namespace std;
 using glm::dvec3;
 using glm::ivec3;
@@ -191,16 +194,21 @@ struct Chain {
   vector<int> step_idx;
   vector<int32_t> decoded_markus;
 
+  vector<uint32_t> color;
+  vector<uint32_t> color_bc1;
+
   Chain(int point_offset, int num_points,
         vector<int32_t>::iterator x_begin, vector<int32_t>::iterator x_end,
         vector<int32_t>::iterator y_begin, vector<int32_t>::iterator y_end,
-        vector<int32_t>::iterator z_begin, vector<int32_t>::iterator z_end) {
+        vector<int32_t>::iterator z_begin, vector<int32_t>::iterator z_end,
+        vector<uint32_t>::iterator c_begin, vector<uint32_t>::iterator c_end) {
     this->point_offset = point_offset;
     this->num_points = num_points;
 
     x = vector<int32_t>(x_begin, x_end);
     y = vector<int32_t>(y_begin, y_end);
     z = vector<int32_t>(z_begin, z_end);
+    color = vector<uint32_t>(c_begin, c_end);
   }
 
   void calculate_bbox() {
@@ -210,6 +218,22 @@ struct Chain {
     bbox_max[0] = *max_element(x.begin(), x.end());
     bbox_max[1] = *max_element(y.begin(), y.end());
     bbox_max[2] = *max_element(z.begin(), z.end());
+  }
+
+  void encode_color() {
+    assert(color.size() % 16 == 0);
+    assert(color.size() == num_points);
+    int num_blocks = num_points / 16;
+
+    color_bc1.clear();
+    color_bc1.resize(num_blocks * 2);
+    for (int bid = 0; bid < num_blocks; ++bid) {
+      uint32_t block[16];
+      uint8_t enc[8];
+      memcpy(block, color.data() + bid * 16, 16 * 4);
+      rgbcx::encode_bc1(8, &enc, (uint8_t *) block, false, false);
+      memcpy(color_bc1.data() + bid * 2, enc, 8);
+    }
   }
 
   void calculate_deltas() {
@@ -385,7 +409,8 @@ struct Batch {
   Batch(int point_offset, int num_points, method_type method,
         vector<int32_t>::iterator x_begin, vector<int32_t>::iterator x_end,
         vector<int32_t>::iterator y_begin, vector<int32_t>::iterator y_end,
-        vector<int32_t>::iterator z_begin, vector<int32_t>::iterator z_end) {
+        vector<int32_t>::iterator z_begin, vector<int32_t>::iterator z_end,
+        vector<uint32_t>::iterator c_begin, vector<uint32_t>::iterator c_end) {
     this->point_offset = point_offset;
     this->num_points = num_points;
     this->method = method;
@@ -396,7 +421,8 @@ struct Batch {
       chains.push_back(Chain(point_offset + offset, chain_size,
                          x_begin + offset, x_begin + offset + chain_size,
                          y_begin + offset, y_begin + offset + chain_size,
-                         z_begin + offset, z_begin + offset + chain_size));
+                         z_begin + offset, z_begin + offset + chain_size,
+                         c_begin + offset, c_begin + offset + chain_size));
       chains.back().method = this->method;
     }
   }
@@ -578,6 +604,11 @@ struct Batch {
       }
     }
 
+    // encode color
+    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+      chains[i].encode_color();
+    }
+
     vector<int32_t> all_deltas;
     for (int i = 0; i < WORKGROUP_SIZE; ++i) {
       if (chains[i].num_points == 0) continue;
@@ -668,6 +699,92 @@ struct Batch {
   }
 };
 
+
+void encode_decode_color(vector<uint32_t> &colors) {
+  int num_blocks = colors.size() / 16;
+
+  for (int bid = 0; bid < num_blocks; ++bid) {
+    int pid = bid * 16;
+    vector<uint32_t> batch(colors.begin() + pid, colors.begin() + pid + 16);
+    // for (uint32_t &color: batch) {
+    //   uint32_t r = (color >> 0) & 0x000000FF;
+    //   uint32_t g = (color >> 8) & 0x000000FF;
+    //   uint32_t b = (color >> 16) & 0x000000FF;
+    //   color = (r << 24) | (g << 16) | (b << 8);
+    // }
+
+    uint8_t enc[8];
+    rgbcx::encode_bc1(8, &enc, (uint8_t *) batch.data(), false, false);
+
+    uint32_t color0 = enc[0] | (enc[1] << 8);
+    uint32_t rgb0[3];
+    {
+      uint32_t r5 = (color0 >> 11) & 31;
+      uint32_t g6 = (color0 >>  5) & 63;
+      uint32_t b5 = (color0 >>  0) & 31;
+      uint32_t r8 = r5 << 3;
+      uint32_t g8 = g6 << 2;
+      uint32_t b8 = b5 << 3;
+      rgb0[0] = r8, rgb0[1] = g8, rgb0[2] = b8;
+    }
+
+    uint32_t color1 = enc[2] | (enc[3] << 8);
+    uint32_t rgb1[3];
+    {
+      uint32_t r5 = (color1 >> 11) & 31;
+      uint32_t g6 = (color1 >>  5) & 63;
+      uint32_t b5 = (color1 >>  0) & 31;
+      uint32_t r8 = r5 << 3;
+      uint32_t g8 = g6 << 2;
+      uint32_t b8 = b5 << 3;
+      rgb1[0] = r8, rgb1[1] = g8, rgb1[2] = b8;
+    }
+
+    vector<uint32_t> color_dict(4);
+    color_dict[0] = color_dict[0] | rgb0[0];
+    color_dict[0] = color_dict[0] | (rgb0[1] << 8);
+    color_dict[0] = color_dict[0] | (rgb0[2] << 16);
+
+    color_dict[1] = color_dict[1] | uint32_t(float(rgb0[0]) * 0.66 + float(rgb1[0]) * 0.33);
+    color_dict[1] = color_dict[1] | (uint32_t(float(rgb0[1]) * 0.66 + float(rgb1[1]) * 0.33) << 8);
+    color_dict[1] = color_dict[1] | (uint32_t(float(rgb0[2]) * 0.66 + float(rgb1[2]) * 0.33) << 16);
+
+    color_dict[2] = color_dict[2] | uint32_t(float(rgb0[0]) * 0.33 + float(rgb1[0]) * 0.66);
+    color_dict[2] = color_dict[2] | (uint32_t(float(rgb0[1]) * 0.33 + float(rgb1[1]) * 0.66) << 8);
+    color_dict[2] = color_dict[2] | (uint32_t(float(rgb0[2]) * 0.33 + float(rgb1[2]) * 0.66) << 16);
+
+    color_dict[3] = color_dict[3] | rgb1[0];
+    color_dict[3] = color_dict[3] | (rgb1[1] << 8);
+    color_dict[3] = color_dict[3] | (rgb1[2] << 16);
+
+    vector<uint32_t> decoded(16);
+    for (int i = 4; i < 8; ++i) {
+      uint8_t word = enc[i];
+      decoded[(i - 4) * 4 + 0] = color_dict[word & 3];
+      word >>= 2;
+      decoded[(i - 4) * 4 + 1] = color_dict[word & 3];
+      word >>= 2;
+      decoded[(i - 4) * 4 + 2] = color_dict[word & 3];
+      word >>= 2;
+      decoded[(i - 4) * 4 + 3] = color_dict[word & 3];
+      word >>= 2;
+    }
+
+    float total = 0;
+    for (int i = 0; i < 16; ++i) {
+      total += fabs((colors[i + pid] >> 0) & 0x000000FF - (decoded[i] >> 0) & 0x000000FF);
+      total += fabs((colors[i + pid] >> 8) & 0x000000FF - (decoded[i] >> 8) & 0x000000FF);
+      total += fabs((colors[i + pid] >> 16) & 0x000000FF - (decoded[i] >> 16) & 0x000000FF);
+    }
+    total /= 16 * 3;
+    cout << total << endl;
+
+    for (int i = 0; i < 16; ++i) {
+      colors[i + pid] = decoded[i];
+    }
+  }
+}
+
 struct Chunk {
   int64_t num_points;
   int64_t encoding_bytes = 0;
@@ -723,6 +840,9 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     cout << "Sorted Points" << endl;
   }
 
+  rgbcx::init(rgbcx::bc1_approx_mode::cBC1Ideal);
+  // encode_decode_color(actual_color);
+
   // divide into batches
   vector<pair<int,int>> batch_configuration = get_batch_parameters(num_points);
   vector<Batch> batches;
@@ -730,14 +850,17 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     auto begin_x = actual_x.begin() + start_point;
     auto begin_y = actual_y.begin() + start_point;
     auto begin_z = actual_z.begin() + start_point;
+    auto begin_c = actual_color.begin() + start_point;
     auto end_x = actual_x.begin() + start_point + size;
     auto end_y = actual_y.begin() + start_point + size;
     auto end_z = actual_z.begin() + start_point + size;
+    auto end_c = actual_color.begin() + start_point + size;
 
     batches.push_back(Batch(start_point, size, clipped_huffman,
                             actual_x.begin() + start_point, actual_x.begin() + start_point + size,
                             actual_y.begin() + start_point, actual_y.begin() + start_point + size,
-                            actual_z.begin() + start_point, actual_z.begin() + start_point + size));
+                            actual_z.begin() + start_point, actual_z.begin() + start_point + size,
+                            actual_color.begin() + start_point, actual_color.begin() + start_point + size));
   }
   cout << "Divided into Batches" << endl;
 
@@ -894,11 +1017,19 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
       bdd.separate_sizes[i] = dst.size() - bdd.separate_offsets[i];
     }
 
-    // TODO: color
-    bdd.color.resize(bdd.num_points);
-    for (int i = 0; i < b.num_points; ++i) {
-      bdd.color[i] = actual_color[b.point_offset + i];
+    // bdd.color.resize(bdd.num_points);
+    // for (int i = 0; i < b.num_points; ++i) {
+    //   bdd.color[i] = actual_color[b.point_offset + i];
+    // }
+
+    assert(bdd.num_points % 16 == 0);
+    bdd.color.clear();
+    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+      auto &dst = bdd.color;
+      auto &src = b.chains[i].color_bc1;
+      dst.insert(dst.end(), src.begin(), src.end());
     }
+    assert(bdd.color.size() == (bdd.num_points / 8));
 
     // decoder table
     auto &decoder_table = b.decoder_table;
