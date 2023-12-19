@@ -124,6 +124,51 @@ __device__ bool intersectsFrustum(const ChangingRenderData& d, float3 wgMin, flo
 	return true;
 }
 
+__device__
+unsigned int decode_color(int pointID, unsigned char *rgba) {
+  int blockID = pointID / 16;
+  int localID = pointID % 16;
+  int offset = blockID * 8;
+
+  unsigned char enc[8];
+  for (int i = 0; i < 8; ++i) enc[i] = rgba[offset + i];
+
+  unsigned int color0 = enc[0] | (enc[1] << 8);
+  unsigned int rgb0[3];
+  {
+    unsigned int r5 = (color0 >> 11) & 31;
+    unsigned int g6 = (color0 >>  5) & 63;
+    unsigned int b5 = (color0 >>  0) & 31;
+    unsigned int r8 = (r5 << 3) | (r5 >> 2);
+    unsigned int g8 = (g6 << 2) | (g6 >> 4);
+    unsigned int b8 = (b5 << 3) | (b5 >> 2);
+    rgb0[0] = r8, rgb0[1] = g8, rgb0[2] = b8;
+  }
+
+  unsigned int color1 = enc[2] | (enc[3] << 8);
+  unsigned int rgb1[3];
+  {
+    unsigned int r5 = (color1 >> 11) & 31;
+    unsigned int g6 = (color1 >>  5) & 63;
+    unsigned int b5 = (color1 >>  0) & 31;
+    unsigned int r8 = (r5 << 3) | (r5 >> 2);
+    unsigned int g8 = (g6 << 2) | (g6 >> 4);
+    unsigned int b8 = (b5 << 3) | (b5 >> 2);
+    rgb1[0] = r8, rgb1[1] = g8, rgb1[2] = b8;
+  }
+
+  int word = (enc[localID / 4 + 4] >> (2 * (localID % 4))) & 3;
+  unsigned int color = -1;
+  
+  if (word == 0) color = rgb0[0] | (rgb0[1] << 8) | (rgb0[2] << 16);
+  else if (word == 1) color = ((rgb0[0] * 2 + rgb1[0] * 1) / 3) | (((rgb0[1] * 2 + rgb1[1] * 1) / 3) << 8) | (((rgb0[2] * 2 + rgb1[2] * 1) / 3) << 16);
+  else if (word == 2) color = ((rgb0[0] * 1 + rgb1[0] * 2) / 3) | (((rgb0[1] * 1 + rgb1[1] * 2) / 3) << 8) | (((rgb0[2] * 1 + rgb1[2] * 2) / 3) << 16);
+  else if (word == 3) color = rgb1[0] | (rgb1[1] << 8) | (rgb1[2] << 16);
+  color = rgb0[0] | (rgb0[1] << 8) | (rgb0[2] << 16);
+
+  return color;
+}
+
 __device__ void rasterize(const ChangingRenderData &data,
                           unsigned long long int *framebuffer,
                           unsigned long long int *RG,
@@ -147,7 +192,8 @@ __device__ void rasterize(const ChangingRenderData &data,
     float oldDepth = *((float*) &oldDepthInt);
 
     if (pos.w <= oldDepth * 1.01) {
-      unsigned int rgba = Colors[index];
+      // unsigned int rgba = Colors[index];
+      unsigned int rgba = decode_color(index, (unsigned char*) Colors);
       unsigned long long r = (rgba >>  0) & ((1 << 8) - 1);
       unsigned long long g = (rgba >>  8) & ((1 << 8) - 1);
       unsigned long long b = (rgba >> 16) & ((1 << 8) - 1);
@@ -243,6 +289,7 @@ void kernel(const ChangingRenderData           cdata,
     pixelSize /= 100.0;
     percentage = (1.8f * pixelSize - 0.3);
     percentage = clamp(percentage, 0.1f, 1.0f);
+    percentage = 1.0;
     Shared_NumPointsToRender = min((int) (percentage * cdata.uPointsPerThread), cdata.uPointsPerThread);
     // printf("pixelSize %f percentage %f\n", pixelSize, percentage);
   }

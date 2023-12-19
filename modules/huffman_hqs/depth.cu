@@ -233,6 +233,7 @@ void kernel(const ChangingRenderData           cdata,
     pixelSize /= 100.0;
     percentage = (1.8f * pixelSize - 0.3);
     percentage = clamp(percentage, 0.1f, 1.0f);
+    percentage = 1.0;
     Shared_NumPointsToRender = min((int) (percentage * cdata.uPointsPerThread), cdata.uPointsPerThread);
     // printf("pixelSize %f percentage %f\n", pixelSize, percentage);
   }
