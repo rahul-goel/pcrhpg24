@@ -2,6 +2,7 @@
 #include <string>
 #include <future>
 #include <queue>
+#include <set>
 
 #include "compute/Resources.h"
 #include "mymorton.h"
@@ -10,6 +11,11 @@
 #include "unsuck.hpp"
 #include "glm/common.hpp"
 #include "glm/matrix.hpp"
+#include "kdtree.h"
+#include "cySampleElim.h"
+#include "cyVector.h"
+
+#include "flann/flann.hpp"
 
 #define RGBCX_IMPLEMENTATION
 #include "rgbcx.h"
@@ -141,6 +147,37 @@ struct LasLoader{
 		t.detach();
 	}
 }; 
+
+struct hashFunc{
+    size_t operator()(const cy::Vec3f &k) const{
+    size_t h1 = std::hash<double>()(k.x);
+    size_t h2 = std::hash<double>()(k.y);
+    size_t h3 = std::hash<double>()(k.z);
+    return (h1 ^ (h2 << 1)) ^ h3;
+    }
+};
+
+struct equalsFunc{
+  bool operator()( const cy::Vec3f& lhs, const cy::Vec3f& rhs ) const{
+    return (lhs.x == rhs.x) && (lhs.y == rhs.y) && (lhs.z == rhs.z);
+  }
+};
+
+template <typename T>
+class Point : public std::array<T, 3>
+{
+public:
+  static const int DIM = 3;
+
+	// the constructors
+	Point() {}
+	Point(T x, T y, T z)
+	{ 
+		(*this)[0] = x;
+		(*this)[1] = y;
+		(*this)[1] = z;
+	}
+};
 
 // [start_idx, batch_size] vector returned
 vector<pair<int,int>> get_batch_parameters(int num_points) {
@@ -609,6 +646,496 @@ struct Batch {
     // }
   }
 
+  void assign_selected_points(vector<bool> &bs) {
+    vector<int32_t> new_x(POINTS_PER_WORKGROUP);
+    vector<int32_t> new_y(POINTS_PER_WORKGROUP);
+    vector<int32_t> new_z(POINTS_PER_WORKGROUP);
+
+    int num_sampled = accumulate(bs.begin(), bs.end(), 0);
+    int ptr = 0;
+    vector<int> chain_ptr(WORKGROUP_SIZE);
+
+    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+      if (bs[i]) {
+        int old_chain_idx = i / POINTS_PER_THREAD;
+        int old_idx = i % POINTS_PER_THREAD;
+
+        int new_chain_idx = ptr;
+        int new_idx = chain_ptr[ptr];
+        int j = new_chain_idx * POINTS_PER_THREAD + new_idx;
+        new_x[j] = chains[old_chain_idx].x[old_idx];
+        new_y[j] = chains[old_chain_idx].y[old_idx];
+        new_z[j] = chains[old_chain_idx].z[old_idx];
+
+        chain_ptr[ptr] += 1;
+        ptr = (ptr + 1) % WORKGROUP_SIZE;
+      }
+    }
+
+    ptr = 0;
+    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+      if (!bs[i]) {
+        int old_chain_idx = i / POINTS_PER_THREAD;
+        int old_idx = i % POINTS_PER_THREAD;
+
+        int new_chain_idx = ptr;
+        int new_idx = chain_ptr[ptr];
+        int j = new_chain_idx * POINTS_PER_THREAD + new_idx;
+        new_x[j] = chains[old_chain_idx].x[old_idx];
+        new_y[j] = chains[old_chain_idx].y[old_idx];
+        new_z[j] = chains[old_chain_idx].z[old_idx];
+
+        chain_ptr[ptr] += 1;
+        if (chain_ptr[ptr] == POINTS_PER_THREAD) ptr += 1;
+      }
+    }
+
+    chains.clear();
+    auto chain_parameters = get_chain_parameters(num_points, WORKGROUP_SIZE);
+    auto x_begin = new_x.begin();
+    auto y_begin = new_y.begin();
+    auto z_begin = new_z.begin();
+    for (auto &[offset, chain_size] : chain_parameters) {
+      chains.push_back(Chain(point_offset + offset, chain_size,
+                         x_begin + offset, x_begin + offset + chain_size,
+                         y_begin + offset, y_begin + offset + chain_size,
+                         z_begin + offset, z_begin + offset + chain_size));
+      chains.back().method = this->method;
+    }
+  }
+
+  void rearrange_random() {
+    const int num_samples = POINTS_PER_WORKGROUP / 10;
+
+    vector<int> indices(POINTS_PER_WORKGROUP);
+    iota(indices.begin(), indices.end(), 0);
+
+    random_device rd;
+    mt19937 gen(rd());
+    shuffle(indices.begin(), indices.end(), gen);
+
+    vector<int> sampled_indices(indices.begin(), indices.begin() + num_samples);
+    bitset<POINTS_PER_WORKGROUP> bs;
+    for (int &idx : sampled_indices) bs[idx] = 1;
+
+    vector<int32_t> new_x, new_y, new_z;
+    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+      if (bs[i]) {
+        int chain_idx = i / POINTS_PER_THREAD;
+        int idx = i % POINTS_PER_THREAD;
+        new_x.push_back(chains[chain_idx].x[idx]);
+        new_y.push_back(chains[chain_idx].y[idx]);
+        new_z.push_back(chains[chain_idx].z[idx]);
+      }
+    }
+    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+      if (not bs[i]) {
+        int chain_idx = i / POINTS_PER_THREAD;
+        int idx = i % POINTS_PER_THREAD;
+        new_x.push_back(chains[chain_idx].x[idx]);
+        new_y.push_back(chains[chain_idx].y[idx]);
+        new_z.push_back(chains[chain_idx].z[idx]);
+      }
+    }
+
+    chains.clear();
+    auto chain_parameters = get_chain_parameters(num_points, WORKGROUP_SIZE);
+    auto x_begin = new_x.begin();
+    auto y_begin = new_y.begin();
+    auto z_begin = new_z.begin();
+    for (auto &[offset, chain_size] : chain_parameters) {
+      chains.push_back(Chain(point_offset + offset, chain_size,
+                         x_begin + offset, x_begin + offset + chain_size,
+                         y_begin + offset, y_begin + offset + chain_size,
+                         z_begin + offset, z_begin + offset + chain_size));
+      chains.back().method = this->method;
+    }
+  }
+
+  void rearrange_flann() {
+    vector<vector<float>> points;
+    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+      for (int j = 0; j < POINTS_PER_THREAD; ++j) {
+        points.push_back({float(chains[i].x[j]), float(chains[i].y[j]), float(chains[i].z[j])});
+      }
+    }
+
+    flann::Matrix<float> flannDataset(new float[points.size() * points[0].size()], points.size(), points[0].size());
+    for (size_t i = 0; i < flannDataset.rows; ++i) {
+        for (size_t j = 0; j < flannDataset.cols; ++j) {
+            flannDataset[i][j] = points[i][j];
+        }
+    }
+
+    flann::Index<flann::L2<float>> index(flannDataset, flann::KDTreeIndexParams(4)); // KDTree with 4 trees
+    index.buildIndex();
+
+
+    vector<pair<long long, int>> distances;
+    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+      // get the closest two points. first one will be the point itself
+      // Perform nearest neighbor search
+      int k = 1; // Number of nearest neighbors to search for
+      std::vector<float> query = {points[i][0], points[i][1], points[i][2]}; // Example query point
+      flann::Matrix<int> indices(new int[k], 1, k);
+      flann::Matrix<float> dists(new float[k], 1, k);
+      flann::Matrix<float> flannQuery(query.data(), 1, query.size());
+      index.knnSearch(flannQuery, indices, dists, k, flann::SearchParams(128)); // Using 128 checks for accuracy
+
+      distances.push_back({dists[0][0], i});
+
+      delete[] indices.ptr();
+      delete[] dists.ptr();
+    }
+    delete[] flannDataset.ptr();
+
+    sort(distances.begin(), distances.end());
+    reverse(distances.begin(), distances.end());
+
+    const int num_samples = POINTS_PER_WORKGROUP / 1;
+    distances.resize(num_samples);
+
+    vector<bool> bs(POINTS_PER_WORKGROUP);
+    for (auto &[d, i] : distances) bs[i] = 1;
+
+    assign_selected_points(bs);
+  }
+
+  void rearrange_radius() {
+    vector<Point<int32_t>> points;
+    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+      for (int j = 0; j < POINTS_PER_THREAD; ++j) {
+        points.push_back(Point<int32_t>(chains[i].x[j], chains[i].y[j], chains[i].z[j]));
+      }
+    }
+
+    kdt::KDTree<Point<int32_t>> kdtree(points);
+    vector<pair<long long, int>> distances;
+    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+      // get the closest two points. first one will be the point itself
+      int j = kdtree.knnSearch(points[i], 2)[1];
+      long long dist2 = 0;
+      dist2 += (points[i][0] - points[j][0]) * (points[i][0] - points[j][0]);
+      dist2 += (points[i][1] - points[j][1]) * (points[i][1] - points[j][1]);
+      dist2 += (points[i][2] - points[j][2]) * (points[i][2] - points[j][2]);
+      distances.push_back({dist2, i});
+    }
+
+    sort(distances.begin(), distances.end());
+    reverse(distances.begin(), distances.end());
+
+    const int num_samples = POINTS_PER_WORKGROUP;
+    distances.resize(num_samples);
+
+    // vector<bool> bs(POINTS_PER_WORKGROUP);
+    // for (auto &[d, i] : distances) bs[i] = 1;
+
+    // assign_selected_points(bs);
+
+    vector<int32_t> new_x(POINTS_PER_WORKGROUP);
+    vector<int32_t> new_y(POINTS_PER_WORKGROUP);
+    vector<int32_t> new_z(POINTS_PER_WORKGROUP);
+
+    int j = 0;
+    vector<int> chain_j(WORKGROUP_SIZE);
+    int done = 0;
+    for (auto &[d, i] : distances) {
+      int old_chain_idx = i / POINTS_PER_THREAD;
+      int old_idx = i % POINTS_PER_THREAD;
+
+      int idx = j * POINTS_PER_THREAD + chain_j[j];
+      new_x[idx] = chains[old_chain_idx].x[old_idx];
+      new_y[idx] = chains[old_chain_idx].y[old_idx];
+      new_z[idx] = chains[old_chain_idx].z[old_idx];
+      chain_j[j] += 1;
+      j = (j + 1) % WORKGROUP_SIZE;
+      done += 1;
+      if (done == POINTS_PER_WORKGROUP/ 10) break;
+    }
+
+    // for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+    //   for (int j = 0; j < POINTS_PER_THREAD; ++j) {
+    //     bool found = false;
+    //     for (int k = 0; k < POINTS_PER_WORKGROUP; ++k) {
+    //       if (new_x[k] == chains[i].x[j] && new_y[k] == chains[i].y[j] && new_z[k] == chains[i].z[j]) {
+    //         found = true;
+    //         break;
+    //       }
+    //     }
+    //     if (not found) {
+    //       cout << "ERE" << endl;
+    //     }
+    //     assert(found);
+    //   }
+    // }
+
+    chains.clear();
+    auto chain_parameters = get_chain_parameters(num_points, WORKGROUP_SIZE);
+    auto x_begin = new_x.begin();
+    auto y_begin = new_y.begin();
+    auto z_begin = new_z.begin();
+    for (auto &[offset, chain_size] : chain_parameters) {
+      chains.push_back(Chain(point_offset + offset, chain_size,
+                         x_begin + offset, x_begin + offset + chain_size,
+                         y_begin + offset, y_begin + offset + chain_size,
+                         z_begin + offset, z_begin + offset + chain_size));
+      chains.back().method = this->method;
+    }
+  }
+
+  void rearrange_rahul() {
+    vector<Point<int32_t>> points;
+    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+      for (int j = 0; j < POINTS_PER_THREAD; ++j) {
+        points.push_back(Point<int32_t>(chains[i].x[j], chains[i].y[j], chains[i].z[j]));
+      }
+    }
+
+    kdt::KDTree<Point<int32_t>> kdtree(points);
+    vector<pair<long long, int>> distances;
+    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+      // get the closest two points. first one will be the point itself
+      int j = kdtree.knnSearch(points[i], 2)[1];
+      long long dist2 = 0;
+      dist2 += (points[i][0] - points[j][0]) * (points[i][0] - points[j][0]);
+      dist2 += (points[i][1] - points[j][1]) * (points[i][1] - points[j][1]);
+      dist2 += (points[i][2] - points[j][2]) * (points[i][2] - points[j][2]);
+      distances.push_back({dist2, i});
+    }
+
+    sort(distances.begin(), distances.end());
+    reverse(distances.begin(), distances.end());
+
+    const int num_samples = POINTS_PER_WORKGROUP / 10;
+    distances.resize(num_samples);
+
+    vector<int32_t> new_x(POINTS_PER_WORKGROUP);
+    vector<int32_t> new_y(POINTS_PER_WORKGROUP);
+    vector<int32_t> new_z(POINTS_PER_WORKGROUP);
+
+    int j = 0;
+    vector<int> chain_j(WORKGROUP_SIZE);
+    vector<bool> bs(POINTS_PER_WORKGROUP, 1);
+    for (auto &[d, i] : distances) {
+      bs[i] = false;
+      int old_chain_idx = i / POINTS_PER_THREAD;
+      int old_idx = i % POINTS_PER_THREAD;
+
+      int idx = j * POINTS_PER_THREAD + chain_j[j];
+      new_x[idx] = chains[old_chain_idx].x[old_idx];
+      new_y[idx] = chains[old_chain_idx].y[old_idx];
+      new_z[idx] = chains[old_chain_idx].z[old_idx];
+      chain_j[j] += 1;
+      j = (j + 1) % WORKGROUP_SIZE;
+    }
+
+    j = 0;
+    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+      if (bs[i]) {
+        int old_chain_idx = i / POINTS_PER_THREAD;
+        int old_idx = i % POINTS_PER_THREAD;
+        int idx = j * POINTS_PER_THREAD + chain_j[j];
+        new_x[idx] = chains[old_chain_idx].x[old_idx];
+        new_y[idx] = chains[old_chain_idx].y[old_idx];
+        new_z[idx] = chains[old_chain_idx].z[old_idx];
+        chain_j[j] += 1;
+        if (chain_j[j] == POINTS_PER_THREAD) j += 1;
+      }
+    }
+
+    // for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+    //   for (int j = 0; j < POINTS_PER_THREAD; ++j) {
+    //     bool found = false;
+    //     for (int k = 0; k < POINTS_PER_WORKGROUP; ++k) {
+    //       if (new_x[k] == chains[i].x[j] && new_y[k] == chains[i].y[j] && new_z[k] == chains[i].z[j]) {
+    //         found = true;
+    //         break;
+    //       }
+    //     }
+    //     if (not found) {
+    //       cout << "ERE" << endl;
+    //     }
+    //     assert(found);
+    //   }
+    // }
+
+    chains.clear();
+    auto chain_parameters = get_chain_parameters(num_points, WORKGROUP_SIZE);
+    auto x_begin = new_x.begin();
+    auto y_begin = new_y.begin();
+    auto z_begin = new_z.begin();
+    for (auto &[offset, chain_size] : chain_parameters) {
+      chains.push_back(Chain(point_offset + offset, chain_size,
+                         x_begin + offset, x_begin + offset + chain_size,
+                         y_begin + offset, y_begin + offset + chain_size,
+                         z_begin + offset, z_begin + offset + chain_size));
+      chains.back().method = this->method;
+    }
+  }
+
+  void rearrange_uniform_grid() {
+    vector<Point<double>> points;
+    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+      for (int j = 0; j < POINTS_PER_THREAD; ++j) {
+        points.push_back(Point<double>(chains[i].x[j], chains[i].y[j], chains[i].z[j]));
+      }
+    }
+
+    kdt::KDTree<Point<double>> kdtree(points);
+    vector<pair<double,int>> distances;
+    // bitset<POINTS_PER_WORKGROUP> bs;
+    vector<bool> bs(POINTS_PER_WORKGROUP);
+
+    int sz = 10;
+    for (int i = 0; i < sz; ++i) {
+      for (int j = 0; j < sz; ++j) {
+        for (int k = 0; k < sz; ++k) {
+          double x = double(bbox_min[0]) + double(bbox_max[0] - bbox_min[0]) / sz * i;
+          double y = double(bbox_min[1]) + double(bbox_max[1] - bbox_min[1]) / sz * j;
+          double z = double(bbox_min[2]) + double(bbox_max[2] - bbox_min[2]) / sz * k;
+          Point<double> query = Point<double>(x, y, z);
+          int closest = kdtree.knnSearch(query, 1)[0];
+          bs[closest] = 1;
+        }
+      }
+    }
+
+    vector<int32_t> new_x(POINTS_PER_WORKGROUP), new_y(POINTS_PER_WORKGROUP), new_z(POINTS_PER_WORKGROUP);
+    int num_sampled = accumulate(bs.begin(), bs.end(), 0);
+
+    int ptr = 0;
+    vector<int> chain_ptr(WORKGROUP_SIZE);
+
+    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+      if (bs[i]) {
+        int old_chain_idx = i / POINTS_PER_THREAD;
+        int old_idx = i % POINTS_PER_THREAD;
+
+        int new_chain_idx = ptr;
+        int new_idx = chain_ptr[ptr];
+        int j = new_chain_idx * POINTS_PER_THREAD + new_idx;
+        new_x[j] = chains[old_chain_idx].x[old_idx];
+        new_y[j] = chains[old_chain_idx].y[old_idx];
+        new_z[j] = chains[old_chain_idx].z[old_idx];
+
+        chain_ptr[ptr] += 1;
+        ptr = (ptr + 1) % WORKGROUP_SIZE;
+      }
+    }
+
+    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+      if (not bs[i]) {
+        int old_chain_idx = i / POINTS_PER_THREAD;
+        int old_idx = i % POINTS_PER_THREAD;
+
+        int new_chain_idx = ptr;
+        int new_idx = chain_ptr[ptr];
+        int j = new_chain_idx * POINTS_PER_THREAD + new_idx;
+        new_x[j] = chains[old_chain_idx].x[old_idx];
+        new_y[j] = chains[old_chain_idx].y[old_idx];
+        new_z[j] = chains[old_chain_idx].z[old_idx];
+
+        chain_ptr[ptr] += 1;
+        ptr = (ptr + 1) % WORKGROUP_SIZE;
+      }
+    }
+
+    chains.clear();
+    auto chain_parameters = get_chain_parameters(num_points, WORKGROUP_SIZE);
+    auto x_begin = new_x.begin();
+    auto y_begin = new_y.begin();
+    auto z_begin = new_z.begin();
+    for (auto &[offset, chain_size] : chain_parameters) {
+      chains.push_back(Chain(point_offset + offset, chain_size,
+                         x_begin + offset, x_begin + offset + chain_size,
+                         y_begin + offset, y_begin + offset + chain_size,
+                         z_begin + offset, z_begin + offset + chain_size));
+      chains.back().method = this->method;
+    }
+  }
+
+  void rearrange_sample_elimination() {
+    vector<cy::Vec3f> points;
+    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+      for (int j = 0; j < POINTS_PER_THREAD; ++j) {
+        points.push_back(cy::Vec3f(chains[i].x[j], chains[i].y[j], chains[i].z[j]));
+      }
+    }
+
+    vector<cy::Vec3f> sampled(POINTS_PER_WORKGROUP / 10);
+    cy::WeightedSampleElimination<cy::Vec3f,float,3,int> wse;
+    cy::Vec3f minbound(bbox_min[0], bbox_min[1], bbox_min[2]);
+    cy::Vec3f maxbound(bbox_max[0], bbox_max[1], bbox_max[2]);
+    wse.SetBoundsMax(maxbound);
+    wse.SetBoundsMin(minbound);
+    wse.Eliminate(points.data(), points.size(), sampled.data(), sampled.size());
+
+    // find the indices of the sampled points
+    unordered_map<cy::Vec3f, int, hashFunc, equalsFunc> mp;
+    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+      mp[points[i]] = i;
+    }
+
+    vector<bool> bs(POINTS_PER_WORKGROUP);
+    for (auto &point : sampled) {
+      int idx = mp.at(point);
+      bs[idx] = 1;
+    }
+
+    vector<int32_t> new_x(POINTS_PER_WORKGROUP), new_y(POINTS_PER_WORKGROUP), new_z(POINTS_PER_WORKGROUP);
+    int num_sampled = accumulate(bs.begin(), bs.end(), 0);
+
+    int ptr = 0;
+    vector<int> chain_ptr(WORKGROUP_SIZE);
+
+    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+      if (bs[i]) {
+        int old_chain_idx = i / POINTS_PER_THREAD;
+        int old_idx = i % POINTS_PER_THREAD;
+
+        int new_chain_idx = ptr;
+        int new_idx = chain_ptr[ptr];
+        int j = new_chain_idx * POINTS_PER_THREAD + new_idx;
+        new_x[j] = chains[old_chain_idx].x[old_idx];
+        new_y[j] = chains[old_chain_idx].y[old_idx];
+        new_z[j] = chains[old_chain_idx].z[old_idx];
+
+        chain_ptr[ptr] += 1;
+        ptr = (ptr + 1) % WORKGROUP_SIZE;
+      }
+    }
+
+    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+      if (not bs[i]) {
+        int old_chain_idx = i / POINTS_PER_THREAD;
+        int old_idx = i % POINTS_PER_THREAD;
+
+        int new_chain_idx = ptr;
+        int new_idx = chain_ptr[ptr];
+        int j = new_chain_idx * POINTS_PER_THREAD + new_idx;
+        new_x[j] = chains[old_chain_idx].x[old_idx];
+        new_y[j] = chains[old_chain_idx].y[old_idx];
+        new_z[j] = chains[old_chain_idx].z[old_idx];
+
+        chain_ptr[ptr] += 1;
+        ptr = (ptr + 1) % WORKGROUP_SIZE;
+      }
+    }
+
+    chains.clear();
+    auto chain_parameters = get_chain_parameters(num_points, WORKGROUP_SIZE);
+    auto x_begin = new_x.begin();
+    auto y_begin = new_y.begin();
+    auto z_begin = new_z.begin();
+    for (auto &[offset, chain_size] : chain_parameters) {
+      chains.push_back(Chain(point_offset + offset, chain_size,
+                         x_begin + offset, x_begin + offset + chain_size,
+                         y_begin + offset, y_begin + offset + chain_size,
+                         z_begin + offset, z_begin + offset + chain_size));
+      chains.back().method = this->method;
+    }
+  }
+
   void calculate() {
     // calculate bbox
     for (int i = 0; i < WORKGROUP_SIZE; ++i) {
@@ -626,6 +1153,14 @@ struct Batch {
         bbox_max[j] = max(bbox_max[j], chains[i].bbox_max[j]);
       }
     }
+    
+    // let's try re-arranging points in a batch
+    // rearrange_random();
+    // rearrange_radius();
+    // rearrange_flann();
+    // rearrange_uniform_grid();
+    // rearrange_sample_elimination();
+    rearrange_rahul();
 
     // encode color
     for (int i = 0; i < WORKGROUP_SIZE; ++i) {

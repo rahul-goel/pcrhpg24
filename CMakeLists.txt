@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(compute_rasterizer)
+project(compute_rasterizer LANGUAGES C CXX CUDA)
 
 include(FetchContent)
 
@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS}; -std=c++17;) # Assuming C++17 for CUDA
 
 file(GLOB SOURCES "src/*")
 add_executable(${PROJECT_NAME}
@@ -51,6 +52,7 @@ add_executable(preprocess
 include_directories(
     include
     modules
+    libs/cyCodeBase
 )
 
 # target_link_libraries(${PROJECT_NAME} include/PotreeData.h)
@@ -100,6 +102,8 @@ include_directories(libs/glm)
 # add json
 include_directories(libs/json)
 
+# flann
+include_directories(libs/flann/src/cpp/)
 
 # imgui
 include_directories(
