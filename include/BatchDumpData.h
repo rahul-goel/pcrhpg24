@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cassert>
 
+#include "compute/Resources.h"
+
 #include "glm/common.hpp"
 #include "glm/matrix.hpp"
 #include "unsuck.hpp"
@@ -136,8 +138,13 @@ struct BatchDumpData {
 
     encoding.resize(accumulate(encoding_sizes.begin(), encoding_sizes.end(), 0ll));
     separate.resize(accumulate(separate_sizes.begin(), separate_sizes.end(), 0ll));
-    // color.resize(num_points);
+#if COLOR_COMPRESSION==0
+    color.resize(num_points);
+#elif COLOR_COMPRESSION==1
     color.resize(num_points / 8);
+#elif COLOR_COMPRESSION==7
+    color.resize(num_points / 4);
+#endif
 
     // Huffman Encoded Data
     memcpy(encoding.data(), buf_ptr + offset, encoding.size() * 4);

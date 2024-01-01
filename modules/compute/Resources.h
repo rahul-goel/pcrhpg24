@@ -10,6 +10,8 @@
 #define HUFFMAN_LEAF_COUNT 128
 #define HUFFMAN_TABLE_SIZE 4096
 
+#define COLOR_COMPRESSION 1 // 0 -> no compression, 1 -> bc1, 7 -> bc7
+
 #include "Renderer.h"
 
 enum ResourceState { 

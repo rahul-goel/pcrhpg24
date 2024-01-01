@@ -187,7 +187,7 @@ void kernel(const ChangingRenderData           cdata,
   unsigned int warpIdx = threadIdx.x / 32;
 
   // right now we dont want to deal with the edge case of last batch
-	if (blockIdx.x == gridDim.x - 1) return;
+	// if (blockIdx.x == gridDim.x - 1) return;
 
   // batch meta data
   GPUBatch batch = BatchData[batchIndex];

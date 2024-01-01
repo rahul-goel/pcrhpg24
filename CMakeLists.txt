@@ -43,6 +43,8 @@ add_executable(test_huffman
 add_executable(preprocess
   src/preprocess.cpp
   src/rgbcx.cpp
+  src/bc7enc.cpp
+  src/bc7decomp.cpp
   include/unsuck_platform_specific.cpp
 )
 

@@ -34,7 +34,16 @@ void HuffmanLasData::load(Renderer *renderer) {
     this->SeparateData          = renderer->createBuffer(this->separateBytes);
     this->SeparateDataOffsets   = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 4);
     this->SeparateDataSizes     = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 4);
+
+    assert(this->numPoints % 2 == 0);
+#if COLOR_COMPRESSION==0
     this->Colors                = renderer->createBuffer(this->numPoints * 4);
+#elif COLOR_COMPRESSION==1
+    this->Colors                = renderer->createBuffer(this->numPoints / 2);
+#elif COLOR_COMPRESSION==7
+    this->Colors                = renderer->createBuffer(this->numPoints);
+#endif
+
     this->DecoderTableValues    = renderer->createBuffer(numBatches * HUFFMAN_TABLE_SIZE * 4);
     this->DecoderTableCWLen     = renderer->createBuffer(numBatches * HUFFMAN_TABLE_SIZE * 4);
     this->ClusterSizes          = renderer->createBuffer(this->clusterBytes);
@@ -260,8 +269,13 @@ void HuffmanLasData::process(Renderer *renderer) {
     }
     { // color
       auto &arr = bdd.color;
-      // size_t offset = this->task->batchIdx * POINTS_PER_WORKGROUP * sizeof(arr[0]);
+#if COLOR_COMPRESSION==0
+      size_t offset = this->task->batchIdx * POINTS_PER_WORKGROUP * sizeof(arr[0]);
+#elif COLOR_COMPRESSION==1
       size_t offset = (this->task->batchIdx * POINTS_PER_WORKGROUP * sizeof(arr[0])) / 8;
+#elif COLOR_COMPRESSION==7
+      size_t offset = (this->task->batchIdx * POINTS_PER_WORKGROUP * sizeof(arr[0])) / 4;
+#endif
       size_t size = arr.size() * sizeof(arr[0]);
       glNamedBufferSubData(this->Colors.handle, offset, size, arr.data());
     }

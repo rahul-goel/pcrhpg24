@@ -1,4 +1,5 @@
 #define DTABLE_SIZE 4096
+#define COLOR_COMPRESSION 1 // 0 -> no compression, 1 -> bc1, 7 -> bc7
 
 #include "huffman_kernel_data.h"
 #include "helper_math.h"
@@ -124,47 +125,148 @@ __device__ bool intersectsFrustum(const ChangingRenderData& d, float3 wgMin, flo
 	return true;
 }
 
+struct bc1_block
+{
+		unsigned char m_low_color[2];
+		unsigned char m_high_color[2];
+		unsigned char m_selectors[4];
+};
+
 __device__
-unsigned int decode_color(int pointID, unsigned char *rgba) {
+unsigned int set_color(unsigned int r, unsigned int g, unsigned int b) {
+  return r | (g << 8) | (b << 16);
+}
+
+__device__
+unsigned int decode_bc1(int pointID, unsigned char *rgba) {
   int blockID = pointID / 16;
   int localID = pointID % 16;
   int offset = blockID * 8;
 
-  unsigned char enc[8];
-  for (int i = 0; i < 8; ++i) enc[i] = rgba[offset + i];
+  const void* ptr = (void *) (rgba + offset);
+  const bc1_block* pBlock = static_cast<const bc1_block*>(ptr);
 
-  unsigned int color0 = enc[0] | (enc[1] << 8);
-  unsigned int rgb0[3];
-  {
-    unsigned int r5 = (color0 >> 11) & 31;
-    unsigned int g6 = (color0 >>  5) & 63;
-    unsigned int b5 = (color0 >>  0) & 31;
-    unsigned int r8 = (r5 << 3) | (r5 >> 2);
-    unsigned int g8 = (g6 << 2) | (g6 >> 4);
-    unsigned int b8 = (b5 << 3) | (b5 >> 2);
-    rgb0[0] = r8, rgb0[1] = g8, rgb0[2] = b8;
-  }
+  const unsigned int l = pBlock->m_low_color[0] | (pBlock->m_low_color[1] << 8U);
+  const int cr0 = (l >> 11) & 31;
+  const int cg0 = (l >> 5) & 63;
+  const int cb0 = l & 31;
+  const int r0 = (cr0 << 3) | (cr0 >> 2);
+  const int g0 = (cg0 << 2) | (cg0 >> 4);
+  const int b0 = (cb0 << 3) | (cb0 >> 2);
 
-  unsigned int color1 = enc[2] | (enc[3] << 8);
-  unsigned int rgb1[3];
-  {
-    unsigned int r5 = (color1 >> 11) & 31;
-    unsigned int g6 = (color1 >>  5) & 63;
-    unsigned int b5 = (color1 >>  0) & 31;
-    unsigned int r8 = (r5 << 3) | (r5 >> 2);
-    unsigned int g8 = (g6 << 2) | (g6 >> 4);
-    unsigned int b8 = (b5 << 3) | (b5 >> 2);
-    rgb1[0] = r8, rgb1[1] = g8, rgb1[2] = b8;
-  }
+  const unsigned int h = pBlock->m_high_color[0] | (pBlock->m_high_color[1] << 8U);
+  const int cr1 = (h >> 11) & 31;
+  const int cg1 = (h >> 5) & 63;
+  const int cb1 = h & 31;
+  const int r1 = (cr1 << 3) | (cr1 >> 2);
+  const int g1 = (cg1 << 2) | (cg1 >> 4);
+  const int b1 = (cb1 << 3) | (cb1 >> 2);
 
-  int word = (enc[localID / 4 + 4] >> (2 * (localID % 4))) & 3;
   unsigned int color = -1;
-  
-  if (word == 0) color = rgb0[0] | (rgb0[1] << 8) | (rgb0[2] << 16);
-  else if (word == 1) color = ((rgb0[0] * 2 + rgb1[0] * 1) / 3) | (((rgb0[1] * 2 + rgb1[1] * 1) / 3) << 8) | (((rgb0[2] * 2 + rgb1[2] * 1) / 3) << 16);
-  else if (word == 2) color = ((rgb0[0] * 1 + rgb1[0] * 2) / 3) | (((rgb0[1] * 1 + rgb1[1] * 2) / 3) << 8) | (((rgb0[2] * 1 + rgb1[2] * 2) / 3) << 16);
-  else if (word == 3) color = rgb1[0] | (rgb1[1] << 8) | (rgb1[2] << 16);
-  color = rgb0[0] | (rgb0[1] << 8) | (rgb0[2] << 16);
+  int word = (pBlock->m_selectors[localID / 4] >> (2 * (localID % 4))) & 3;
+  switch (word) {
+    case 0:
+      color = set_color(r0, g0, b0);
+      break;
+    case 1:
+      color = set_color(r1, g1, b1);
+      break;
+    case 2:
+      color = set_color((r0 * 2 + r1) / 3, (g0 * 2 + g1) / 3, (b0 * 2 + b1) / 3);
+      break;
+    case 3:
+      color = set_color((r0 + r1 * 2) / 3, (g0 + g1 * 2) / 3, (b0 + b1 * 2) / 3);
+      break;
+  }
+
+  return color;
+}
+
+struct bc7_mode_6
+{
+  struct
+  {
+    unsigned long long m_mode : 7;
+    unsigned long long m_r0 : 7;
+    unsigned long long m_r1 : 7;
+    unsigned long long m_g0 : 7;
+    unsigned long long m_g1 : 7;
+    unsigned long long m_b0 : 7;
+    unsigned long long m_b1 : 7;
+    unsigned long long m_a0 : 7;
+    unsigned long long m_a1 : 7;
+    unsigned long long m_p0 : 1;
+  } m_lo;
+
+  union
+  {
+    struct
+    {
+      unsigned long long m_p1 : 1;
+      unsigned long long m_s00 : 3;
+      unsigned long long m_s10 : 4;
+      unsigned long long m_s20 : 4;
+      unsigned long long m_s30 : 4;
+
+      unsigned long long m_s01 : 4;
+      unsigned long long m_s11 : 4;
+      unsigned long long m_s21 : 4;
+      unsigned long long m_s31 : 4;
+
+      unsigned long long m_s02 : 4;
+      unsigned long long m_s12 : 4;
+      unsigned long long m_s22 : 4;
+      unsigned long long m_s32 : 4;
+
+      unsigned long long m_s03 : 4;
+      unsigned long long m_s13 : 4;
+      unsigned long long m_s23 : 4;
+      unsigned long long m_s33 : 4;
+
+    } m_hi;
+
+    unsigned long long m_hi_bits;
+  };
+};
+
+__device__
+int linspace_idx(float start, float end, int num_points, int idx){
+  float step = (end - start) / (num_points - 1);
+  float val = start + idx * step;
+  return round(val);
+}
+
+__device__
+unsigned int decode_bc7(int pointID, unsigned char *rgba) {
+  int blockID = pointID / 16;
+  int localID = pointID % 16;
+  int offset = blockID * 16;
+
+  unsigned char enc[16];
+  for (int i = 0; i < 16; ++i) enc[i] = rgba[offset + i];
+
+	const bc7_mode_6 &block = *static_cast<const bc7_mode_6 *>((void *) enc);
+	const unsigned int r0 = static_cast<unsigned int>((block.m_lo.m_r0 << 1) | block.m_lo.m_p0);
+	const unsigned int g0 = static_cast<unsigned int>((block.m_lo.m_g0 << 1) | block.m_lo.m_p0);
+	const unsigned int b0 = static_cast<unsigned int>((block.m_lo.m_b0 << 1) | block.m_lo.m_p0);
+	const unsigned int a0 = static_cast<unsigned int>((block.m_lo.m_a0 << 1) | block.m_lo.m_p0);
+	const unsigned int r1 = static_cast<unsigned int>((block.m_lo.m_r1 << 1) | block.m_hi.m_p1);
+	const unsigned int g1 = static_cast<unsigned int>((block.m_lo.m_g1 << 1) | block.m_hi.m_p1);
+	const unsigned int b1 = static_cast<unsigned int>((block.m_lo.m_b1 << 1) | block.m_hi.m_p1);
+	const unsigned int a1 = static_cast<unsigned int>((block.m_lo.m_a1 << 1) | block.m_hi.m_p1);
+
+  unsigned int color = -1;
+
+  int idx = (block.m_hi_bits >> (localID * 4)) & 0xF;
+  if (idx == 0) idx = (idx >> 1);
+  const unsigned int w = linspace_idx(0, 64, 16, idx);
+  const unsigned int iw = 64 - w;
+
+  color =
+  ((unsigned char) ((r0 * iw + r1 * w + 32) >> 6)) <<  0 |
+  ((unsigned char) ((g0 * iw + g1 * w + 32) >> 6)) <<  8 |
+  ((unsigned char) ((b0 * iw + b1 * w + 32) >> 6)) << 16 |
+  ((unsigned char) ((a0 * iw + a1 * w + 32) >> 6)) << 24;
 
   return color;
 }
@@ -192,8 +294,14 @@ __device__ void rasterize(const ChangingRenderData &data,
     float oldDepth = *((float*) &oldDepthInt);
 
     if (pos.w <= oldDepth * 1.01) {
-      // unsigned int rgba = Colors[index];
-      unsigned int rgba = decode_color(index, (unsigned char*) Colors);
+#if COLOR_COMPRESSION==0
+      unsigned int rgba = Colors[index];
+#elif COLOR_COMPRESSION==1
+      unsigned int rgba = decode_bc1(index, (unsigned char*) Colors);
+#elif COLOR_COMPRESSION==7
+      unsigned int rgba = decode_bc7(index, (unsigned char*) Colors);
+#endif
+
       unsigned long long r = (rgba >>  0) & ((1 << 8) - 1);
       unsigned long long g = (rgba >>  8) & ((1 << 8) - 1);
       unsigned long long b = (rgba >> 16) & ((1 << 8) - 1);
