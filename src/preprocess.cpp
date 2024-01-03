@@ -96,6 +96,16 @@ struct LasLoader{
 
 		int64_t byteOffset = offsetToPointData + recordLength * firstPoint;
 		int64_t byteSize = batchSize_points * recordLength;
+    int offset_rgb = 0;
+    if (format == 2) {
+      offset_rgb = 20;
+    } else if (format == 3){
+      offset_rgb = 28;
+    } else if (format == 7){
+      offset_rgb = 30;
+    } else if (format == 8){
+      offset_rgb = 30;
+    }
 
 		auto rawBuffer = make_shared<Buffer>(byteSize);
 		readBinaryFile(file, byteOffset, byteSize, rawBuffer->data);
@@ -109,9 +119,9 @@ struct LasLoader{
 			int32_t X = rawBuffer->get<int32_t>(offset + 0);
 			int32_t Y = rawBuffer->get<int32_t>(offset + 4);
 			int32_t Z = rawBuffer->get<int32_t>(offset + 8);
-			uint16_t R = rawBuffer->get<uint16_t>(offset + 28);
-			uint16_t G = rawBuffer->get<uint16_t>(offset + 30);
-			uint16_t B = rawBuffer->get<uint16_t>(offset + 32);
+			uint16_t R = rawBuffer->get<uint16_t>(offset + offset_rgb + 0);
+			uint16_t G = rawBuffer->get<uint16_t>(offset + offset_rgb + 2);
+			uint16_t B = rawBuffer->get<uint16_t>(offset + offset_rgb + 4);
 
 			R = R > 255 ? R / 255 : R;
 			G = G > 255 ? G / 255 : G;
