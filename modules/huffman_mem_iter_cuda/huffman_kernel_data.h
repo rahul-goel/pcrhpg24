@@ -1,7 +1,7 @@
 #pragma once
 
 // this must be a multiple of 16
-#define GPUBatchSize 128
+#define GPUBatchSize 144
 struct GPUBatch {
   // bounding box -> 24 bytes
   float min_x;
@@ -11,23 +11,21 @@ struct GPUBatch {
   float max_y;
   float max_z;
 
-  // scale and offset -> 24 bytes
-  float scale_x;
-  float scale_y;
-  float scale_z;
-  float offset_x;
-  float offset_y;
-  float offset_z;
+  // scale and offset -> 48 bytes
+  double scale_x;
+  double scale_y;
+  double scale_z;
+  double offset_x;
+  double offset_y;
+  double offset_z;
 
-  // las min and las max -> 32 bytes
+  // las min and las max -> 24 bytes
   float las_min_x;
   float las_min_y;
   float las_min_z;
   float las_max_x;
   float las_max_y;
   float las_max_z;
-  float padding1;
-  float pading2;
 
   // batch-level encoding and separate offset -> 40 bytes
   long long encoding_batch_offset;
