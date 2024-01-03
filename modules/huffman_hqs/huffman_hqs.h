@@ -325,7 +325,7 @@ struct HuffmanHQS : public Method {
       std::vector<CUgraphicsResource> dynamic_resources = { output };
       cuGraphicsMapResources(dynamic_resources.size(), dynamic_resources.data(), ((CUstream) CU_STREAM_DEFAULT));
 
-      CUDA_RESOURCE_DESC res_desc;
+      CUDA_RESOURCE_DESC res_desc = {};
       res_desc.resType = CUresourcetype::CU_RESOURCE_TYPE_ARRAY;
       cuGraphicsSubResourceGetMappedArray(&res_desc.res.array.hArray, output, 0, 0);
       CUsurfObject output_surf;
