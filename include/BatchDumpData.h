@@ -16,8 +16,8 @@ struct BatchDumpData {
   int32_t num_threads;
   int32_t points_per_thread;
 
-  float las_scale[3];
-  float las_offset[3];
+  double las_scale[3];
+  double las_offset[3];
 
   float bbox_min[3];
   float bbox_max[3];
@@ -42,7 +42,7 @@ struct BatchDumpData {
   vector<int32_t> cluster_sizes;
 
   size_t get_total_size() {
-    size_t total_size = 4 * 24;
+    size_t total_size = 4 * 18 + 8 * 6;
     total_size += start_values.size()             * 4;
     total_size += decoder_values.size()           * 4;
     total_size += decoder_cw_len.size()           * 4;
@@ -74,11 +74,11 @@ struct BatchDumpData {
     memcpy(&points_per_thread, buf_ptr + offset, 4);
     offset += 4;
     // What is the scale parameter in the original LAS header? -> 3 values
-    memcpy(&las_scale, buf_ptr + offset, 4 * 3);
-    offset += 4 * 3;
+    memcpy(&las_scale, buf_ptr + offset, 8 * 3);
+    offset += 8 * 3;
     // What is the offset parameter in the original LAS header? -> 3 values
-    memcpy(&las_offset, buf_ptr + offset, 4 * 3);
-    offset += 4 * 3;
+    memcpy(&las_offset, buf_ptr + offset, 8 * 3);
+    offset += 8 * 3;
     // What is the minimum value among the points that I have? -> 3 values
     memcpy(&bbox_min, buf_ptr + offset, 4 * 3);
     offset += 4 * 3;
@@ -164,10 +164,10 @@ struct BatchDumpData {
     offset += 4;
     memcpy(buffer.data() + offset, &points_per_thread, 4);
     offset += 4;
-    memcpy(buffer.data() + offset, &las_scale, 4 * 3);
-    offset += 4 * 3;
-    memcpy(buffer.data() + offset, &las_offset, 4 * 3);
-    offset += 4 * 3;
+    memcpy(buffer.data() + offset, &las_scale, 8 * 3);
+    offset += 8 * 3;
+    memcpy(buffer.data() + offset, &las_offset, 8 * 3);
+    offset += 8 * 3;
     memcpy(buffer.data() + offset, &bbox_min, 4 * 3);
     offset += 4 * 3;
     memcpy(buffer.data() + offset, &bbox_max, 4 * 3);
@@ -221,10 +221,10 @@ struct BatchDumpData {
     offset += 4;
     memcpy(buffer + offset, &points_per_thread, 4);
     offset += 4;
-    memcpy(buffer + offset, &las_scale, 4 * 3);
-    offset += 4 * 3;
-    memcpy(buffer + offset, &las_offset, 4 * 3);
-    offset += 4 * 3;
+    memcpy(buffer + offset, &las_scale, 8 * 3);
+    offset += 8 * 3;
+    memcpy(buffer + offset, &las_offset, 8 * 3);
+    offset += 8 * 3;
     memcpy(buffer + offset, &bbox_min, 4 * 3);
     offset += 4 * 3;
     memcpy(buffer + offset, &bbox_max, 4 * 3);

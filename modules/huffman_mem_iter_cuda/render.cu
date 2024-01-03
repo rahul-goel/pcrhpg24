@@ -191,9 +191,10 @@ void kernel(const ChangingRenderData           cdata,
 
   // batch meta data
   GPUBatch batch = BatchData[batchIndex];
-  float3 las_offset = make_float3(batch.offset_x, batch.offset_y, batch.offset_z);
-  float3 las_scale = make_float3(batch.scale_x, batch.scale_y, batch.scale_z);
+  // double3 las_offset = make_double3(batch.offset_x, batch.offset_y, batch.offset_z);
+  // double3 las_scale = make_double3(batch.scale_x, batch.scale_y, batch.scale_z);
   float3 las_min = make_float3(batch.las_min_x, batch.las_min_y, batch.las_min_z);
+  // double3 d_las_min = make_double3(batch.las_min_x, batch.las_min_y, batch.las_min_z);
 
 
   // frustum cull if enabled
@@ -317,7 +318,13 @@ void kernel(const ChangingRenderData           cdata,
                                 decoded[1] + prev_values.y,
                                 decoded[2] + prev_values.z);
 
-    float3 cur_xyz = make_float3(cur_values.x, cur_values.y, cur_values.z) * las_scale + las_offset - las_min;
+    // float3 cur_xyz = make_double3(cur_values.x, cur_values.y, cur_values.z) * las_scale + las_offset - d_las_min;
+
+    float x = float(double(cur_values.x) * batch.scale_x + batch.offset_x - double(batch.las_min_x)); 
+    float y = float(double(cur_values.y) * batch.scale_y + batch.offset_y - double(batch.las_min_y)); 
+    float z = float(double(cur_values.z) * batch.scale_z + batch.offset_z - double(batch.las_min_z));
+    float3 cur_xyz = make_float3(x, y, z);
+    
     prev_values = cur_values;
 
     rasterize(cdata, framebuffer, cur_xyz, pointIndex, NumPointsToRender);
