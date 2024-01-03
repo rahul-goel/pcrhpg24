@@ -28,7 +28,8 @@ void HuffmanLasData::load(Renderer *renderer) {
   { // create buffers
     this->BatchData             = renderer->createBuffer(GPUBatchSize * numBatches);
     this->StartValues           = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 3 * 4);
-    this->EncodedData           = renderer->createBuffer(this->encodedBytes);
+    // additional small buffer to avoid wrong memory access for the last batch during read of "NextHuffman"
+    this->EncodedData           = renderer->createBuffer(this->encodedBytes + 4 * WORKGROUP_SIZE);
     this->EncodedDataOffsets    = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 4);
     this->EncodedDataSizes      = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 4);
     this->SeparateData          = renderer->createBuffer(this->separateBytes);

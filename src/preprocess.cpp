@@ -1111,7 +1111,7 @@ struct Batch {
     // rearrange_flann();
     // rearrange_uniform_grid();
     // rearrange_sample_elimination();
-    rearrange_rahul();
+    // rearrange_rahul();
 
     vector<int32_t> all_deltas;
     for (int i = 0; i < WORKGROUP_SIZE; ++i) {

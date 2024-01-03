@@ -186,7 +186,7 @@ void kernel(const ChangingRenderData           cdata,
   unsigned int warpIdx = threadIdx.x / 32;
 
   // right now we dont want to deal with the edge case of last batch
-	if (blockIdx.x == gridDim.x - 1) return;
+	// if (blockIdx.x == gridDim.x - 1) return;
 
   // batch meta data
   GPUBatch batch = BatchData[batchIndex];
@@ -233,6 +233,7 @@ void kernel(const ChangingRenderData           cdata,
     pixelSize /= 100.0;
     percentage = (1.8f * pixelSize - 0.3);
     percentage = clamp(percentage, 0.1f, 1.0f);
+    // percentage = 1.0f;
     Shared_NumPointsToRender = min((int) (percentage * cdata.uPointsPerThread), cdata.uPointsPerThread);
     // printf("pixelSize %f percentage %f\n", pixelSize, percentage);
   }
