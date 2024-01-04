@@ -46,7 +46,15 @@ add_executable(preprocess
   src/rgbcx.cpp
   src/bc7enc.cpp
   src/bc7decomp.cpp
+  src/Renderer.cpp
+  src/Framebuffer.cpp
+  src/GLTimerQueries.cpp
+  src/OrbitControls.cpp
+  src/Texture.cpp
+  src/miniz.c
   include/unsuck_platform_specific.cpp
+  modules/compute/ComputeLasLoader.cpp
+  modules/compute/HuffmanLasLoader.cpp
 )
 
 include_directories(
@@ -84,17 +92,18 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 	libs/glew/include)
 target_sources(${PROJECT_NAME} PRIVATE
 	libs/glew/glew.c)
-# target_include_directories(rahul PRIVATE
-# 	libs/glew/include)
-# target_sources(rahul PRIVATE
-# 	libs/glew/glew.c)
+target_include_directories(preprocess PRIVATE
+	libs/glew/include)
+target_sources(preprocess PRIVATE
+	libs/glew/glew.c)
 
 # GLFW
 # include(cmake/glfw.cmake)
 # target_link_libraries(${PROJECT_NAME} glfw)
 add_subdirectory(libs/glfw)
-target_include_directories(${PROJECT_NAME} PUBLIC libs/glfw/include)
-link_libraries(glfw)
+include_directories(libs/glfw/include)
+target_link_libraries(${PROJECT_NAME} glfw)
+target_link_libraries(preprocess glfw)
 
 # glm
 include_directories(libs/glm)
@@ -117,23 +126,23 @@ target_sources(${PROJECT_NAME} PRIVATE
 	libs/imgui/imgui_widgets.cpp
 	libs/imgui/backends/imgui_impl_glfw.cpp
 	libs/imgui/backends/imgui_impl_opengl3.cpp)
-# target_sources(rahul PRIVATE
-# 	libs/imgui/imgui.cpp
-# 	libs/imgui/imgui_demo.cpp
-# 	libs/imgui/imgui_draw.cpp
-# 	libs/imgui/imgui_tables.cpp
-# 	libs/imgui/imgui_widgets.cpp
-# 	libs/imgui/backends/imgui_impl_glfw.cpp
-# 	libs/imgui/backends/imgui_impl_opengl3.cpp)
+target_sources(preprocess PRIVATE
+	libs/imgui/imgui.cpp
+	libs/imgui/imgui_demo.cpp
+	libs/imgui/imgui_draw.cpp
+	libs/imgui/imgui_tables.cpp
+	libs/imgui/imgui_widgets.cpp
+	libs/imgui/backends/imgui_impl_glfw.cpp
+	libs/imgui/backends/imgui_impl_opengl3.cpp)
 
 # implot
 include_directories(libs/implot)
 target_sources(${PROJECT_NAME} PRIVATE
 	libs/implot/implot_items.cpp
 	libs/implot/implot.cpp)
-# target_sources(rahul PRIVATE
-# 	libs/implot/implot_items.cpp
-# 	libs/implot/implot.cpp)
+target_sources(preprocess PRIVATE
+	libs/implot/implot_items.cpp
+	libs/implot/implot.cpp)
 
 # stb
 include_directories(libs/stb)

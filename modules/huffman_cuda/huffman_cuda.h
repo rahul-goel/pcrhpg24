@@ -16,6 +16,8 @@
 #include "huffman_cuda/huffman_kernel_data.h"
 #include "compute_loop_las_cuda/kernel_data.h"
 
+#include "iso646.h"
+
 using namespace std;
 
 struct ComputeHuffman : public Method {
