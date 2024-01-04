@@ -1,6 +1,7 @@
 #include <vector>
 #include <algorithm>
 #include <cassert>
+#include <numeric>
 
 #include "glm/common.hpp"
 #include "glm/matrix.hpp"
