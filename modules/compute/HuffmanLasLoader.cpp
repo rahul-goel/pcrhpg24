@@ -27,14 +27,14 @@ void HuffmanLasData::load(Renderer *renderer) {
 
   { // create buffers
     this->BatchData             = renderer->createBuffer(GPUBatchSize * numBatches);
-    this->StartValues           = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 3 * 4);
+    this->StartValues           = renderer->createBuffer(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 3 * 4);
     // additional small buffer to avoid wrong memory access for the last batch during read of "NextHuffman"
-    this->EncodedData           = renderer->createBuffer(this->encodedBytes + 4 * WORKGROUP_SIZE);
-    this->EncodedDataOffsets    = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 4);
-    this->EncodedDataSizes      = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 4);
+    this->EncodedData           = renderer->createBuffer(this->encodedBytes + 4 * WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
+    this->EncodedDataOffsets    = renderer->createBuffer(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 4);
+    this->EncodedDataSizes      = renderer->createBuffer(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 4);
     this->SeparateData          = renderer->createBuffer(this->separateBytes);
-    this->SeparateDataOffsets   = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 4);
-    this->SeparateDataSizes     = renderer->createBuffer(WORKGROUP_SIZE * numBatches * 4);
+    this->SeparateDataOffsets   = renderer->createBuffer(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 4);
+    this->SeparateDataSizes     = renderer->createBuffer(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 4);
     this->Colors                = renderer->createBuffer(this->numPoints * 4);
     this->DecoderTableValues    = renderer->createBuffer(numBatches * HUFFMAN_TABLE_SIZE * 4);
     this->DecoderTableCWLen     = renderer->createBuffer(numBatches * HUFFMAN_TABLE_SIZE * 4);
@@ -217,7 +217,7 @@ void HuffmanLasData::process(Renderer *renderer) {
     }
     { // start values
       auto &arr = bdd.start_values;
-      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * 3 * sizeof(arr[0]);
+      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * CLUSTERS_PER_THREAD * 3 * sizeof(arr[0]);
       size_t size = arr.size() * sizeof(arr[0]);
       glNamedBufferSubData(this->StartValues.handle, offset, size, arr.data());
     }
@@ -230,13 +230,13 @@ void HuffmanLasData::process(Renderer *renderer) {
     }
     { // encoding_offsets
       auto &arr = bdd.encoding_offsets;
-      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * sizeof(arr[0]);
+      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * CLUSTERS_PER_THREAD * sizeof(arr[0]);
       size_t size = arr.size() * sizeof(arr[0]);
       glNamedBufferSubData(this->EncodedDataOffsets.handle, offset, size, arr.data());
     }
     { // encoding_sizes
       auto &arr = bdd.encoding_sizes;
-      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * sizeof(arr[0]);
+      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * CLUSTERS_PER_THREAD * sizeof(arr[0]);
       size_t size = arr.size() * sizeof(arr[0]);
       glNamedBufferSubData(this->EncodedDataSizes.handle, offset, size, arr.data());
     }
@@ -249,13 +249,13 @@ void HuffmanLasData::process(Renderer *renderer) {
     }
     { // separate_offsets
       auto &arr = bdd.separate_offsets;
-      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * sizeof(arr[0]);
+      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * CLUSTERS_PER_THREAD * sizeof(arr[0]);
       size_t size = arr.size() * sizeof(arr[0]);
       glNamedBufferSubData(this->SeparateDataOffsets.handle, offset, size, arr.data());
     }
     { // separate_sizes
       auto &arr = bdd.separate_sizes;
-      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * sizeof(arr[0]);
+      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * CLUSTERS_PER_THREAD * sizeof(arr[0]);
       size_t size = arr.size() * sizeof(arr[0]);
       glNamedBufferSubData(this->SeparateDataSizes.handle, offset, size, arr.data());
     }

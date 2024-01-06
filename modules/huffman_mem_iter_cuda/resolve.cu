@@ -9,6 +9,8 @@ __global__ void kernel(
 {                                                             
 	int x = blockIdx.x * blockDim.x + threadIdx.x;
 	int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if (x >= width || y >= height) return;
 	
 
 	int pixelID = x + y * width;

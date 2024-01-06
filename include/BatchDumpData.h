@@ -16,6 +16,7 @@ struct BatchDumpData {
 
   int32_t num_threads;
   int32_t points_per_thread;
+  int32_t clusters_per_thread;
 
   double las_scale[3];
   double las_offset[3];
@@ -43,7 +44,7 @@ struct BatchDumpData {
   vector<int32_t> cluster_sizes;
 
   size_t get_total_size() {
-    size_t total_size = 4 * 18 + 8 * 6;
+    size_t total_size = 4 * 19 + 8 * 6;
     total_size += start_values.size()             * 4;
     total_size += decoder_values.size()           * 4;
     total_size += decoder_cw_len.size()           * 4;
@@ -74,6 +75,9 @@ struct BatchDumpData {
     // How many points do each of the threads have?
     memcpy(&points_per_thread, buf_ptr + offset, 4);
     offset += 4;
+    // How many clusters per thread?
+    memcpy(&clusters_per_thread, buf_ptr + offset, 4);
+    offset += 4;
     // What is the scale parameter in the original LAS header? -> 3 values
     memcpy(&las_scale, buf_ptr + offset, 8 * 3);
     offset += 8 * 3;
@@ -101,11 +105,11 @@ struct BatchDumpData {
     memcpy(&num_clusters, buf_ptr + offset, 4);
     offset += 4;
 
-    start_values.resize(num_threads * 3);
-    encoding_offsets.resize(num_threads);
-    encoding_sizes.resize(num_threads);
-    separate_offsets.resize(num_threads);
-    separate_sizes.resize(num_threads);
+    start_values.resize(num_threads * clusters_per_thread * 3);
+    encoding_offsets.resize(num_threads * clusters_per_thread);
+    encoding_sizes.resize(num_threads * clusters_per_thread);
+    separate_offsets.resize(num_threads * clusters_per_thread);
+    separate_sizes.resize(num_threads * clusters_per_thread);
     decoder_values.resize(dt_size);
     decoder_cw_len.resize(dt_size);
     cluster_sizes.resize(num_clusters);
@@ -165,6 +169,8 @@ struct BatchDumpData {
     offset += 4;
     memcpy(buffer.data() + offset, &points_per_thread, 4);
     offset += 4;
+    memcpy(buffer.data() + offset, &clusters_per_thread, 4);
+    offset += 4;
     memcpy(buffer.data() + offset, &las_scale, 8 * 3);
     offset += 8 * 3;
     memcpy(buffer.data() + offset, &las_offset, 8 * 3);
@@ -221,6 +227,8 @@ struct BatchDumpData {
     memcpy(buffer + offset, &num_threads, 4);
     offset += 4;
     memcpy(buffer + offset, &points_per_thread, 4);
+    offset += 4;
+    memcpy(buffer + offset, &clusters_per_thread, 4);
     offset += 4;
     memcpy(buffer + offset, &las_scale, 8 * 3);
     offset += 8 * 3;

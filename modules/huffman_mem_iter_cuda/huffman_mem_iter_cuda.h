@@ -254,7 +254,7 @@ struct HuffmanMemIter : public Method {
 			cdata.uBoxMax = float3{0, 0, 0};
 			cdata.uNumPoints = las->numPointsLoaded;
 			cdata.uOffsetPointToData = 0;
-			cdata.uPointFormat = 0;
+			cdata.uPointFormat = (int) (Debug::LOD * 100);
 			cdata.uBytesPerPoint = 0;
 			cdata.uScale = float3{0, 0, 0};
 			cdata.uBoxMax = float3{0, 0, 0};
@@ -316,8 +316,8 @@ struct HuffmanMemIter : public Method {
       CUsurfObject output_surf;
 			cuSurfObjectCreate(&output_surf, &res_desc);
 
-      int groups_x = fbo->width / 16;
-      int groups_y = fbo->height / 16;
+      int groups_x = (fbo->width + 15) / 16;
+      int groups_y = (fbo->height + 15) / 16;
       int showNumPoints = Debug::showNumPoints;
       int colorizeChunks = Debug::colorizeChunks;
       void *args[] = { &showNumPoints, &colorizeChunks, &fbo->width, &fbo->height, &output_surf, &fb, &Colors_ptr };

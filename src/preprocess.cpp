@@ -398,7 +398,7 @@ struct Batch {
   method_type method;
   float compression_ratio;
   vector<int> cluster_sizes;
-  vector<uint32_t> packed_warps[WORKGROUP_SIZE / 32];
+  vector<uint32_t> packed_warps[WORKGROUP_SIZE * CLUSTERS_PER_THREAD / 32];
 
   int32_t bbox_min[3];
   int32_t bbox_max[3];
@@ -420,7 +420,7 @@ struct Batch {
     this->method = method;
 
     chains.clear();
-    auto chain_parameters = get_chain_parameters(num_points, WORKGROUP_SIZE);
+    auto chain_parameters = get_chain_parameters(num_points, WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
     for (auto &[offset, chain_size] : chain_parameters) {
       chains.push_back(Chain(point_offset + offset, chain_size,
                          x_begin + offset, x_begin + offset + chain_size,
@@ -462,10 +462,10 @@ struct Batch {
   }
 
   void encode_decode_bernhard(Huffman<int32_t> &hfmn) {
-    assert(WORKGROUP_SIZE % 32 == 0);
+    assert(WORKGROUP_SIZE * CLUSTERS_PER_THREAD % 32 == 0);
 
     cluster_sizes.clear();
-    for (int wid = 0; wid < WORKGROUP_SIZE / 32; ++wid) {
+    for (int wid = 0; wid < WORKGROUP_SIZE * CLUSTERS_PER_THREAD / 32; ++wid) {
       int StartThreadIdx = wid * 32;
 
       for (int warp_tid = 0; warp_tid < 32; ++warp_tid) {
@@ -503,11 +503,12 @@ struct Batch {
       }
     }
 
-    for (int wid = 1; wid < WORKGROUP_SIZE / 32; ++wid) {
+    for (int wid = 1; wid < WORKGROUP_SIZE * CLUSTERS_PER_THREAD / 32; ++wid) {
       cluster_sizes[wid] += cluster_sizes[wid - 1];
     }
   }
 
+  // DEPRECATED DUE TO CLUSTERS_PER_THREAD
   void encode_decode_rahul(Huffman<int32_t> &hfmn) {
     vector<vector<uint32_t>> all_codes(WORKGROUP_SIZE);
     vector<vector<int>> all_sizes(WORKGROUP_SIZE);
@@ -634,7 +635,7 @@ struct Batch {
     }
 
     chains.clear();
-    auto chain_parameters = get_chain_parameters(num_points, WORKGROUP_SIZE);
+    auto chain_parameters = get_chain_parameters(num_points, WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
     auto x_begin = new_x.begin();
     auto y_begin = new_y.begin();
     auto z_begin = new_z.begin();
@@ -649,7 +650,7 @@ struct Batch {
 
   void calculate() {
     // calculate bbox
-    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+    for (int i = 0; i < WORKGROUP_SIZE * CLUSTERS_PER_THREAD; ++i) {
       if (chains[i].num_points == 0) continue;
       chains[i].calculate_bbox();
     }
@@ -657,7 +658,7 @@ struct Batch {
       bbox_min[j] = chains[0].bbox_min[j];
       bbox_max[j] = chains[0].bbox_max[j];
     }
-    for (int i = 1; i < WORKGROUP_SIZE; ++i) {
+    for (int i = 1; i < WORKGROUP_SIZE * CLUSTERS_PER_THREAD; ++i) {
       if (chains[i].num_points == 0) continue;
       for (int j = 0; j < 3; ++j) {
         bbox_min[j] = min(bbox_min[j], chains[i].bbox_min[j]);
@@ -666,7 +667,7 @@ struct Batch {
     }
     
     vector<int32_t> all_deltas;
-    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+    for (int i = 0; i < WORKGROUP_SIZE * CLUSTERS_PER_THREAD; ++i) {
       if (chains[i].num_points == 0) continue;
       chains[i].calculate_deltas();
       chains[i].interleave();
@@ -730,7 +731,7 @@ struct Batch {
     float old_size = 0;
     float new_size = 0;
     encode_decode_bernhard(hfmn);
-    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+    for (int i = 0; i < WORKGROUP_SIZE * CLUSTERS_PER_THREAD; ++i) {
       old_size += chains[i].get_og_size();
       new_size += chains[i].get_compressed_size();
     }
@@ -739,7 +740,7 @@ struct Batch {
     if (method == clipped_huffman) {
       encoding_bytes = 0;
       separate_bytes = 0;
-      for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+      for (int i = 0; i < WORKGROUP_SIZE * CLUSTERS_PER_THREAD; ++i) {
         encoding_bytes += chains[i].get_encoded_num_bytes();
         separate_bytes += chains[i].get_separate_num_bytes();
       }
@@ -913,6 +914,7 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     bdd.num_points = b.num_points;
     bdd.num_threads = WORKGROUP_SIZE;
     bdd.points_per_thread = POINTS_PER_THREAD;
+    bdd.clusters_per_thread = CLUSTERS_PER_THREAD;
 
     bdd.las_scale[0] = las.c_scale.x;
     bdd.las_scale[1] = las.c_scale.y;
@@ -936,17 +938,17 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     bdd.bbox_max[2] = float(b.bbox_max[2]) * las.c_scale.z + las.c_offset.z;
 
     // start values
-    bdd.start_values.resize(WORKGROUP_SIZE * 3);
-    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+    bdd.start_values.resize(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * 3);
+    for (int i = 0; i < WORKGROUP_SIZE * CLUSTERS_PER_THREAD; ++i) {
       bdd.start_values[i * 3 + 0] = b.chains[i].start_xyz[0];
       bdd.start_values[i * 3 + 1] = b.chains[i].start_xyz[1];
       bdd.start_values[i * 3 + 2] = b.chains[i].start_xyz[2];
     }
 
     // encoding
-    bdd.encoding_offsets.resize(WORKGROUP_SIZE);
-    bdd.encoding_sizes.resize(WORKGROUP_SIZE);
-    for (int wid = 0; wid < WORKGROUP_SIZE / 32; ++wid) {
+    bdd.encoding_offsets.resize(WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
+    bdd.encoding_sizes.resize(WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
+    for (int wid = 0; wid < WORKGROUP_SIZE * CLUSTERS_PER_THREAD / 32; ++wid) {
       auto &src = b.packed_warps[wid];
       auto &dst = bdd.encoding;
       dst.insert(dst.end(), src.begin(), src.end());
@@ -966,14 +968,14 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     //   bdd.encoding_sizes[tid] = len;
     // }
 
-    for (int tid = 0; tid < WORKGROUP_SIZE; ++tid) {
+    for (int tid = 0; tid < WORKGROUP_SIZE * CLUSTERS_PER_THREAD; ++tid) {
       bdd.encoding_sizes[tid] = b.chains[tid].encoded_markus.first.size();
     }
 
     // separate
-    bdd.separate_offsets.resize(WORKGROUP_SIZE);
-    bdd.separate_sizes.resize(WORKGROUP_SIZE);
-    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+    bdd.separate_offsets.resize(WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
+    bdd.separate_sizes.resize(WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
+    for (int i = 0; i < WORKGROUP_SIZE * CLUSTERS_PER_THREAD; ++i) {
       auto &src = b.chains[i].encoded_markus.second;
       auto &dst = bdd.separate;
       bdd.separate_offsets[i] = dst.size();
