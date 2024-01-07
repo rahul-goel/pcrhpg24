@@ -1,4 +1,5 @@
 #define DTABLE_SIZE 4096
+#define CLUSTERS_PER_THREAD 1
 
 #include "huffman_kernel_data.h"
 #include "helper_math.h"
@@ -137,7 +138,7 @@ __device__ void rasterize(const ChangingRenderData& data, unsigned long long int
 	unsigned int depth = *((int*)&pos.w);
 	unsigned long long int newPoint;
   if (data.showNumPoints)
-    newPoint = (((unsigned long long int)depth) << 32) | NumPointsToRender;
+    newPoint = (((unsigned long long int)depth) << 32) | (NumPointsToRender * CLUSTERS_PER_THREAD);
   else if (data.colorizeChunks)
     newPoint = (((unsigned long long int)depth) << 32) | blockIdx.x;
   else
@@ -146,8 +147,6 @@ __device__ void rasterize(const ChangingRenderData& data, unsigned long long int
 	if(!(pos.w <= 0.0 || pos.x < -1 || pos.x > 1 || pos.y < -1|| pos.y > 1)){
 		unsigned long long int oldPoint = framebuffer[pixelID];
 		if(newPoint < oldPoint){
-      // atomicMin(&framebuffer[pixelID], blockIdx.x);
-      // newPoint = (((unsigned long long int)depth) << 32) | NumPointsToRender;
 			atomicMin(&framebuffer[pixelID], newPoint);
 		}
 	}
@@ -182,16 +181,11 @@ void kernel(const ChangingRenderData           cdata,
   unsigned int batchIndex = blockIdx.x;
   unsigned int numPointsPerBatch = blockDim.x * cdata.uPointsPerThread;
   unsigned int wgFirstPoint = batchIndex * numPointsPerBatch;
-  unsigned int globalThreadIdx = blockIdx.x * blockDim.x + threadIdx.x;
-  unsigned int warpIdx = threadIdx.x / 32;
-
-  // right now we dont want to deal with the edge case of last batch
-	// if (blockIdx.x == gridDim.x - 1) return;
 
   // batch meta data
   GPUBatch batch = BatchData[batchIndex];
-  // float3 las_offset = make_float3(batch.offset_x, batch.offset_y, batch.offset_z);
-  // float3 las_scale = make_float3(batch.scale_x, batch.scale_y, batch.scale_z);
+  // double3 las_scale = make_double3(batch.scale_x, batch.scale_y, batch.scale_z);
+  float3 las_offset = make_float3(batch.offset_x - batch.las_min_x, batch.offset_y - batch.las_min_y, batch.offset_z - batch.las_min_z);
   float3 las_min = make_float3(batch.las_min_x, batch.las_min_y, batch.las_min_z);
 
 
@@ -204,6 +198,7 @@ void kernel(const ChangingRenderData           cdata,
 
   // figuring out the LOD level
   __shared__ int Shared_NumPointsToRender;
+  __shared__ bool Shared_UseDouble;
   float3 batchCenter = 0.5f * (batchMin + batchMax);
   if (threadIdx.x == 0) {
 		float wgRadius = length(batchMin - batchMax);
@@ -225,39 +220,21 @@ void kernel(const ChangingRenderData           cdata,
 		float pixelSize = sqrt(diff.x*diff.x + diff.y*diff.y);
     float percentage = 0;
 
-    // pixelSize = min(1.0f, pixelSize * 0.01f);
-    // percentage = mysmoothstep(pixelSize);
-    // percentage = max(percentage, 0.1);
-    // if (pixelSize > 0.8) percentage = 1.0;
+    Shared_UseDouble = pixelSize >= 300.0;
 
     pixelSize /= 100.0;
     percentage = (1.8f * pixelSize - 0.3);
     percentage = clamp(percentage, 0.1f, 1.0f);
-    // percentage = 1.0f;
-    Shared_NumPointsToRender = min((int) (percentage * cdata.uPointsPerThread), cdata.uPointsPerThread);
-    // printf("pixelSize %f percentage %f\n", pixelSize, percentage);
+    Shared_NumPointsToRender = min((int) (percentage * cdata.uPointsPerThread / CLUSTERS_PER_THREAD), cdata.uPointsPerThread / CLUSTERS_PER_THREAD);
   }
   __syncthreads();
   int NumPointsToRender = Shared_NumPointsToRender;
-  // if (threadIdx.x == 0) printf("numpointstorender %d\n", NumPointsToRender);
-  // return;
+  bool UseDouble = Shared_UseDouble;
 
 
-  int3 prev_values = make_int3(StartValues[globalThreadIdx * 3 + 0],
-                               StartValues[globalThreadIdx * 3 + 1],
-                               StartValues[globalThreadIdx * 3 + 2]);
-
-  // tracker variables for huffman
+  // copying decoder table to shared memory
   int max_cw_size = (int) batch.max_cw_len;
-  long long EncodedPtr = batch.encoding_batch_offset;
-  if (warpIdx >= 1) {
-    EncodedPtr += ClusterSizes[blockIdx.x * (blockDim.x / 32) + warpIdx - 1];
-  }
-  long long SeparatePtr = batch.separate_batch_offset;
-  int sep_ptr = SeparateDataOffsets[globalThreadIdx] + SeparatePtr;
-
   int DCO = batch.decoder_table_offset;
-  int cur_bits = 32;
   unsigned int mask = ((1 << max_cw_size) - 1) << (32 - max_cw_size);
 
   __shared__ int Shared_DecoderTableValues[DTABLE_SIZE];
@@ -270,61 +247,140 @@ void kernel(const ChangingRenderData           cdata,
   __syncthreads();
 
 
-  // main loop
-  int tid = threadIdx.x % 32;
-  unsigned int CurHuffman = EncodedData[EncodedPtr + tid];
-  unsigned int NextHuffman = EncodedData[EncodedPtr + 32 + tid];
-  int already_read = 64;
-
-  // if (threadIdx.x >= 32) return;
-  // if (threadIdx.x < 32 or threadIdx.x >= 64) return;
-  // if (blockIdx.x >= 1) return;
-  // if (blockIdx.x <= 0 or blockIdx.x >= 2) return;
-  for (int i = 0; i < NumPointsToRender; ++i) {
-  // for (int i = 0; i < 20; ++i) {
-    int decoded[3];
-    for (int j = 0; j < 3; ++j) {
-      unsigned int L = cur_bits == 32 ? CurHuffman : (CurHuffman << (32 - cur_bits));
-      unsigned int R = cur_bits == 32 ? 0 : (NextHuffman >> cur_bits);
-      unsigned int key = ((L|R) & mask) >> (32 - max_cw_size);
-
-      int symbol = Shared_DecoderTableValues[key];
-      int cw_size = Shared_DecoderTableCWLen[key];
-
-      decoded[j] = (cw_size > 0 ? symbol : SeparateData[sep_ptr++]);
-      cur_bits -= abs(cw_size);
-
-      // (cur_bits <= 0) signifies whether the thread is out of bits or not
-      bool need_to_read = cur_bits <= 0;
-      unsigned int warp_mask = __ballot_sync(0xffffffff, need_to_read);
-      // if (threadIdx.x == 0) {
-      //   printf("iteration %d cur_bits %d\n", i * 3 + j, cur_bits);
-      // }
-      if (need_to_read) {
-        int offset = __popc(warp_mask << (32 - tid));
-        // int offset = __popc(warp_mask >> (32 - tid));
-        CurHuffman = NextHuffman;
-        NextHuffman = EncodedData[EncodedPtr + already_read + offset];
-        // printf("ThreadIdx %d Idx %d warp_mask %u\n", tid, already_read + offset, warp_mask);
-        cur_bits += 32;
+  if (UseDouble) {
+    double3 las_scale = make_double3(batch.scale_x, batch.scale_y, batch.scale_z);
+    #pragma unroll
+    for (int outer = 0; outer < CLUSTERS_PER_THREAD; ++outer) {
+      // where to read encoded data from?
+      long long EncodedPtr = batch.encoding_batch_offset;
+      int ClusterIdx = (blockDim.x / 32 * outer) + threadIdx.x / 32;
+      if (ClusterIdx >= 1) {
+        EncodedPtr += ClusterSizes[blockIdx.x * (blockDim.x * CLUSTERS_PER_THREAD / 32) + ClusterIdx - 1];
       }
-      already_read += __popc(warp_mask);
+
+      // where to read separate data from?
+      long long sep_ptr = batch.separate_batch_offset + SeparateDataOffsets[blockIdx.x * blockDim.x * CLUSTERS_PER_THREAD + outer * blockDim.x + threadIdx.x];
+
+      int tid = threadIdx.x % 32;
+      unsigned int CurHuffman = EncodedData[EncodedPtr + tid];
+      unsigned int NextHuffman = EncodedData[EncodedPtr + 32 + tid];
+      int already_read = 64;
+      int cur_bits = 32;
+
+      const int sval_idx = blockIdx.x * blockDim.x * CLUSTERS_PER_THREAD + outer * blockDim.x + threadIdx.x;
+      int3 prev_values = make_int3(StartValues[sval_idx * 3 + 0],
+                                   StartValues[sval_idx * 3 + 1],
+                                   StartValues[sval_idx * 3 + 2]);
+
+
+      // main loop
+      for (int i = 0; i < NumPointsToRender; ++i) {
+        int decoded[3];
+        for (int j = 0; j < 3; ++j) {
+          unsigned int L = cur_bits == 32 ? CurHuffman : (CurHuffman << (32 - cur_bits));
+          unsigned int R = cur_bits == 32 ? 0 : (NextHuffman >> cur_bits);
+          unsigned int key = ((L|R) & mask) >> (32 - max_cw_size);
+
+          int symbol = Shared_DecoderTableValues[key];
+          int cw_size = Shared_DecoderTableCWLen[key];
+
+          decoded[j] = (cw_size > 0 ? symbol : SeparateData[sep_ptr++]);
+          cur_bits -= abs(cw_size);
+
+          // (cur_bits <= 0) signifies whether the thread is out of bits or not
+          bool need_to_read = cur_bits <= 0;
+          unsigned int warp_mask = __ballot_sync(0xffffffff, need_to_read);
+          if (need_to_read) {
+            int offset = __popc(warp_mask << (32 - tid));
+            CurHuffman = NextHuffman;
+            NextHuffman = EncodedData[EncodedPtr + already_read + offset];
+            cur_bits += 32;
+          }
+          already_read += __popc(warp_mask);
+        }
+
+        unsigned int pointIndex = wgFirstPoint + (outer * numPointsPerBatch / CLUSTERS_PER_THREAD) + (threadIdx.x * cdata.uPointsPerThread / CLUSTERS_PER_THREAD) + i;
+        int3 cur_values = make_int3(decoded[0] + prev_values.x,
+                                    decoded[1] + prev_values.y,
+                                    decoded[2] + prev_values.z);
+
+
+        float3 cur_xyz = make_float3(double(cur_values.x) * las_scale.x,
+                                     double(cur_values.y) * las_scale.y,
+                                     double(cur_values.z) * las_scale.z) + las_offset;
+        
+        prev_values = cur_values;
+
+        rasterize(cdata, framebuffer, cur_xyz, pointIndex, NumPointsToRender);
+      }
     }
+  } else {
+    float3 las_scale = make_float3(batch.scale_x, batch.scale_y, batch.scale_z);
+    #pragma unroll
+    for (int outer = 0; outer < CLUSTERS_PER_THREAD; ++outer) {
+      // where to read encoded data from?
+      long long EncodedPtr = batch.encoding_batch_offset;
+      int ClusterIdx = (blockDim.x / 32 * outer) + threadIdx.x / 32;
+      if (ClusterIdx >= 1) {
+        EncodedPtr += ClusterSizes[blockIdx.x * (blockDim.x * CLUSTERS_PER_THREAD / 32) + ClusterIdx - 1];
+      }
 
-    unsigned int pointIndex = wgFirstPoint + threadIdx.x * cdata.uPointsPerThread + i;
-    int3 cur_values = make_int3(decoded[0] + prev_values.x,
-                                decoded[1] + prev_values.y,
-                                decoded[2] + prev_values.z);
+      // where to read separate data from?
+      long long sep_ptr = batch.separate_batch_offset + SeparateDataOffsets[blockIdx.x * blockDim.x * CLUSTERS_PER_THREAD + outer * blockDim.x + threadIdx.x];
 
-    // float3 cur_xyz = make_float3(cur_values.x, cur_values.y, cur_values.z) * las_scale + las_offset - las_min;
+      int tid = threadIdx.x % 32;
+      unsigned int CurHuffman = EncodedData[EncodedPtr + tid];
+      unsigned int NextHuffman = EncodedData[EncodedPtr + 32 + tid];
+      int already_read = 64;
+      int cur_bits = 32;
 
-    float x = float(double(cur_values.x) * batch.scale_x + batch.offset_x - double(batch.las_min_x)); 
-    float y = float(double(cur_values.y) * batch.scale_y + batch.offset_y - double(batch.las_min_y)); 
-    float z = float(double(cur_values.z) * batch.scale_z + batch.offset_z - double(batch.las_min_z));
-    float3 cur_xyz = make_float3(x, y, z);
+      const int sval_idx = blockIdx.x * blockDim.x * CLUSTERS_PER_THREAD + outer * blockDim.x + threadIdx.x;
+      int3 prev_values = make_int3(StartValues[sval_idx * 3 + 0],
+                                   StartValues[sval_idx * 3 + 1],
+                                   StartValues[sval_idx * 3 + 2]);
 
-    prev_values = cur_values;
 
-    rasterize(cdata, framebuffer, cur_xyz, pointIndex, NumPointsToRender);
+      // main loop
+      for (int i = 0; i < NumPointsToRender; ++i) {
+        int decoded[3];
+        for (int j = 0; j < 3; ++j) {
+          unsigned int L = cur_bits == 32 ? CurHuffman : (CurHuffman << (32 - cur_bits));
+          unsigned int R = cur_bits == 32 ? 0 : (NextHuffman >> cur_bits);
+          unsigned int key = ((L|R) & mask) >> (32 - max_cw_size);
+
+          int symbol = Shared_DecoderTableValues[key];
+          int cw_size = Shared_DecoderTableCWLen[key];
+
+          decoded[j] = (cw_size > 0 ? symbol : SeparateData[sep_ptr++]);
+          cur_bits -= abs(cw_size);
+
+          // (cur_bits <= 0) signifies whether the thread is out of bits or not
+          bool need_to_read = cur_bits <= 0;
+          unsigned int warp_mask = __ballot_sync(0xffffffff, need_to_read);
+          if (need_to_read) {
+            int offset = __popc(warp_mask << (32 - tid));
+            CurHuffman = NextHuffman;
+            NextHuffman = EncodedData[EncodedPtr + already_read + offset];
+            cur_bits += 32;
+          }
+          already_read += __popc(warp_mask);
+        }
+
+        unsigned int pointIndex = wgFirstPoint + (outer * numPointsPerBatch / CLUSTERS_PER_THREAD) + (threadIdx.x * cdata.uPointsPerThread / CLUSTERS_PER_THREAD) + i;
+        int3 cur_values = make_int3(decoded[0] + prev_values.x,
+                                    decoded[1] + prev_values.y,
+                                    decoded[2] + prev_values.z);
+
+
+        float3 cur_xyz = make_float3(float(cur_values.x) * las_scale.x,
+                                     float(cur_values.y) * las_scale.y,
+                                     float(cur_values.z) * las_scale.z) + las_offset;
+        
+        prev_values = cur_values;
+
+        rasterize(cdata, framebuffer, cur_xyz, pointIndex, NumPointsToRender);
+      }
+    }
   }
+
 }
