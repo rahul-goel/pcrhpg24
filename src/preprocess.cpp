@@ -639,63 +639,63 @@ struct Batch {
     // }
   }
 
-  void assign_selected_points(vector<bool> &bs) {
-    vector<int32_t> new_x(POINTS_PER_WORKGROUP);
-    vector<int32_t> new_y(POINTS_PER_WORKGROUP);
-    vector<int32_t> new_z(POINTS_PER_WORKGROUP);
+  // void assign_selected_points(vector<bool> &bs) {
+  //   vector<int32_t> new_x(POINTS_PER_WORKGROUP);
+  //   vector<int32_t> new_y(POINTS_PER_WORKGROUP);
+  //   vector<int32_t> new_z(POINTS_PER_WORKGROUP);
 
-    int num_sampled = accumulate(bs.begin(), bs.end(), 0);
-    int ptr = 0;
-    vector<int> chain_ptr(WORKGROUP_SIZE);
+  //   int num_sampled = accumulate(bs.begin(), bs.end(), 0);
+  //   int ptr = 0;
+  //   vector<int> chain_ptr(WORKGROUP_SIZE);
 
-    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
-      if (bs[i]) {
-        int old_chain_idx = i / POINTS_PER_THREAD;
-        int old_idx = i % POINTS_PER_THREAD;
+  //   for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+  //     if (bs[i]) {
+  //       int old_chain_idx = i / POINTS_PER_THREAD;
+  //       int old_idx = i % POINTS_PER_THREAD;
 
-        int new_chain_idx = ptr;
-        int new_idx = chain_ptr[ptr];
-        int j = new_chain_idx * POINTS_PER_THREAD + new_idx;
-        new_x[j] = chains[old_chain_idx].x[old_idx];
-        new_y[j] = chains[old_chain_idx].y[old_idx];
-        new_z[j] = chains[old_chain_idx].z[old_idx];
+  //       int new_chain_idx = ptr;
+  //       int new_idx = chain_ptr[ptr];
+  //       int j = new_chain_idx * POINTS_PER_THREAD + new_idx;
+  //       new_x[j] = chains[old_chain_idx].x[old_idx];
+  //       new_y[j] = chains[old_chain_idx].y[old_idx];
+  //       new_z[j] = chains[old_chain_idx].z[old_idx];
 
-        chain_ptr[ptr] += 1;
-        ptr = (ptr + 1) % WORKGROUP_SIZE;
-      }
-    }
+  //       chain_ptr[ptr] += 1;
+  //       ptr = (ptr + 1) % WORKGROUP_SIZE;
+  //     }
+  //   }
 
-    ptr = 0;
-    for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
-      if (!bs[i]) {
-        int old_chain_idx = i / POINTS_PER_THREAD;
-        int old_idx = i % POINTS_PER_THREAD;
+  //   ptr = 0;
+  //   for (int i = 0; i < POINTS_PER_WORKGROUP; ++i) {
+  //     if (!bs[i]) {
+  //       int old_chain_idx = i / POINTS_PER_THREAD;
+  //       int old_idx = i % POINTS_PER_THREAD;
 
-        int new_chain_idx = ptr;
-        int new_idx = chain_ptr[ptr];
-        int j = new_chain_idx * POINTS_PER_THREAD + new_idx;
-        new_x[j] = chains[old_chain_idx].x[old_idx];
-        new_y[j] = chains[old_chain_idx].y[old_idx];
-        new_z[j] = chains[old_chain_idx].z[old_idx];
+  //       int new_chain_idx = ptr;
+  //       int new_idx = chain_ptr[ptr];
+  //       int j = new_chain_idx * POINTS_PER_THREAD + new_idx;
+  //       new_x[j] = chains[old_chain_idx].x[old_idx];
+  //       new_y[j] = chains[old_chain_idx].y[old_idx];
+  //       new_z[j] = chains[old_chain_idx].z[old_idx];
 
-        chain_ptr[ptr] += 1;
-        if (chain_ptr[ptr] == POINTS_PER_THREAD) ptr += 1;
-      }
-    }
+  //       chain_ptr[ptr] += 1;
+  //       if (chain_ptr[ptr] == POINTS_PER_THREAD) ptr += 1;
+  //     }
+  //   }
 
-    chains.clear();
-    auto chain_parameters = get_chain_parameters(num_points, WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
-    auto x_begin = new_x.begin();
-    auto y_begin = new_y.begin();
-    auto z_begin = new_z.begin();
-    for (auto &[offset, chain_size] : chain_parameters) {
-      chains.push_back(Chain(point_offset + offset, chain_size,
-                         x_begin + offset, x_begin + offset + chain_size,
-                         y_begin + offset, y_begin + offset + chain_size,
-                         z_begin + offset, z_begin + offset + chain_size));
-      chains.back().method = this->method;
-    }
-  }
+  //   chains.clear();
+  //   auto chain_parameters = get_chain_parameters(num_points, WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
+  //   auto x_begin = new_x.begin();
+  //   auto y_begin = new_y.begin();
+  //   auto z_begin = new_z.begin();
+  //   for (auto &[offset, chain_size] : chain_parameters) {
+  //     chains.push_back(Chain(point_offset + offset, chain_size,
+  //                        x_begin + offset, x_begin + offset + chain_size,
+  //                        y_begin + offset, y_begin + offset + chain_size,
+  //                        z_begin + offset, z_begin + offset + chain_size));
+  //     chains.back().method = this->method;
+  //   }
+  // }
 
   void calculate() {
     // calculate bbox
