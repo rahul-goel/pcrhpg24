@@ -21,7 +21,7 @@ __global__ void kernel(
 	if(pointID < 0x7FFFFFFF){
     if (showNumPoints) {
       int NumPointsToRender = framebuffer[pixelID];
-      unsigned int shade = (unsigned int) (((float) NumPointsToRender / 500.0) * 255.0);
+      unsigned int shade = (unsigned int) (((float) NumPointsToRender / 512.0) * 255.0);
       shade = (shade << 24) | (shade << 16) | (shade << 8) | shade;
       color = shade;
     } else if (colorizeChunks) {

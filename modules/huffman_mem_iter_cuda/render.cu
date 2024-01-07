@@ -139,7 +139,7 @@ __device__ void rasterize(const ChangingRenderData& data, unsigned long long int
 	unsigned int depth = *((int*)&pos.w);
 	unsigned long long int newPoint;
   if (data.showNumPoints)
-    newPoint = (((unsigned long long int)depth) << 32) | NumPointsToRender;
+    newPoint = (((unsigned long long int)depth) << 32) | (NumPointsToRender * CLUSTERS_PER_THREAD);
   else if (data.colorizeChunks)
     newPoint = (((unsigned long long int)depth) << 32) | blockIdx.x;
   else
@@ -312,7 +312,7 @@ void kernel(const ChangingRenderData           cdata,
         
         prev_values = cur_values;
 
-        rasterize(cdata, framebuffer, cur_xyz, pointIndex, 500);
+        rasterize(cdata, framebuffer, cur_xyz, pointIndex, NumPointsToRender);
       }
     }
   } else {
@@ -379,7 +379,7 @@ void kernel(const ChangingRenderData           cdata,
         
         prev_values = cur_values;
 
-        rasterize(cdata, framebuffer, cur_xyz, pointIndex, 250);
+        rasterize(cdata, framebuffer, cur_xyz, pointIndex, NumPointsToRender);
       }
     }
   }
