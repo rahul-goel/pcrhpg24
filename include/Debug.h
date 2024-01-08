@@ -18,7 +18,7 @@ struct Debug{
 	inline static bool showBoundingBox = false;
 	inline static bool doCopyTree = false;
 	inline static bool boolMisc = false;
-	inline static float LOD = 1.0;
+	inline static float LOD = 0.1;
 	inline static bool lodEnabled = false;
 	inline static bool frustumCullingEnabled = true;
 	inline static bool enableShaderDebugValue = false;

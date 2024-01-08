@@ -186,7 +186,7 @@ void kernel(const ChangingRenderData           cdata,
   // batch meta data
   GPUBatch batch = BatchData[batchIndex];
   // double3 las_scale = make_double3(batch.scale_x, batch.scale_y, batch.scale_z);
-  float3 las_offset = make_float3(batch.offset_x - batch.las_min_x, batch.offset_y - batch.las_min_y, batch.offset_z - batch.las_min_z);
+  // float3 las_offset = make_float3(batch.offset_x - batch.las_min_x, batch.offset_y - batch.las_min_y, batch.offset_z - batch.las_min_z);
   float3 las_min = make_float3(batch.las_min_x, batch.las_min_y, batch.las_min_z);
 
 
@@ -219,18 +219,19 @@ void kernel(const ChangingRenderData           cdata,
 		screenEdge = make_float2(cdata.uImageSize.x * screenEdge.x, cdata.uImageSize.y * screenEdge.y);
 		float2 diff = screenEdge - screenCenter;
 		float pixelSize = sqrt(diff.x*diff.x + diff.y*diff.y);
-    float percentage = 0;
+    float percentage = 0.0f;
 
-    Shared_UseDouble = pixelSize >= 300.0;
+    Shared_UseDouble = pixelSize >= 300.0f;
 
-    pixelSize /= 100.0;
+    pixelSize /= 100.0f;
     percentage = (1.8f * pixelSize - 0.3);
-    percentage = clamp(percentage, 0.1f, 1.0f);
+    percentage = clamp(percentage, float(cdata.uPointFormat) / 100.0f, 1.0f);
     Shared_NumPointsToRender = min((int) (percentage * cdata.uPointsPerThread / CLUSTERS_PER_THREAD), cdata.uPointsPerThread / CLUSTERS_PER_THREAD);
   }
   __syncthreads();
   int NumPointsToRender = Shared_NumPointsToRender;
   bool UseDouble = Shared_UseDouble;
+  // UseDouble = true;
 
 
   // copying decoder table to shared memory
@@ -250,6 +251,7 @@ void kernel(const ChangingRenderData           cdata,
 
   if (UseDouble) {
     double3 las_scale = make_double3(batch.scale_x, batch.scale_y, batch.scale_z);
+    double3 las_offset = make_double3(batch.offset_x - batch.las_min_x, batch.offset_y - batch.las_min_y, batch.offset_z - batch.las_min_z);
     #pragma unroll
     for (int outer = 0; outer < CLUSTERS_PER_THREAD; ++outer) {
       // where to read encoded data from?
@@ -306,9 +308,9 @@ void kernel(const ChangingRenderData           cdata,
                                     decoded[2] + prev_values.z);
 
 
-        float3 cur_xyz = make_float3(double(cur_values.x) * las_scale.x,
-                                     double(cur_values.y) * las_scale.y,
-                                     double(cur_values.z) * las_scale.z) + las_offset;
+        float3 cur_xyz = make_float3(double(cur_values.x) * las_scale.x + las_offset.x,
+                                     double(cur_values.y) * las_scale.y + las_offset.y,
+                                     double(cur_values.z) * las_scale.z + las_offset.z);
         
         prev_values = cur_values;
 
@@ -317,6 +319,7 @@ void kernel(const ChangingRenderData           cdata,
     }
   } else {
     float3 las_scale = make_float3(batch.scale_x, batch.scale_y, batch.scale_z);
+    float3 las_offset = make_float3(batch.offset_x - batch.las_min_x, batch.offset_y - batch.las_min_y, batch.offset_z - batch.las_min_z);
     #pragma unroll
     for (int outer = 0; outer < CLUSTERS_PER_THREAD; ++outer) {
       // where to read encoded data from?

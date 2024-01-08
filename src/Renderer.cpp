@@ -574,6 +574,7 @@ void Renderer::loop(function<void(void)> update, function<void(void)> render){
 				ss << "renderer->controls->target = {" << target.x << ", " << target.y << ", " << target.z << "};" << endl;
 
 				string str = ss.str();
+        cout << str << endl;
 				
 				// toClipboard(str);
 			}
@@ -661,7 +662,7 @@ void Renderer::loop(function<void(void)> update, function<void(void)> render){
 
 			ImGui::Text("LOD: ");
 			static float LOD = Debug::LOD;
-			ImGui::SliderFloat("rotation", &LOD, 0.0, 20.0);
+			ImGui::SliderFloat("rotation", &LOD, 0.0, 1.0);
 			Debug::LOD = LOD;
 
 			{

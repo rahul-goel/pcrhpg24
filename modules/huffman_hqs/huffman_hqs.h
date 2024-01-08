@@ -258,7 +258,7 @@ struct HuffmanHQS : public Method {
 			cdata.uBoxMax = float3{0, 0, 0};
 			cdata.uNumPoints = las->numPointsLoaded;
 			cdata.uOffsetPointToData = 0;
-			cdata.uPointFormat = 0;
+			cdata.uPointFormat = (int) (Debug::LOD * 100);
 			cdata.uBytesPerPoint = 0;
 			cdata.uScale = float3{0, 0, 0};
 			cdata.uBoxMax = float3{0, 0, 0};
