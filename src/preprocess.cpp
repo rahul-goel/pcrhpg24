@@ -120,10 +120,10 @@ struct LasLoader{
 			uint16_t G = rawBuffer->get<uint16_t>(offset + offset_rgb + 2);
 			uint16_t B = rawBuffer->get<uint16_t>(offset + offset_rgb + 4);
 
-			R = R > 255 ? R / 255 : R;
-			G = G > 255 ? G / 255 : G;
-			B = B > 255 ? B / 255 : B;
-			uint32_t color = (R << 0) | (G << 8) | (B << 16);
+			uint32_t UR = R > 255 ? R / 256 : R;
+			uint32_t UG = G > 255 ? G / 256 : G;
+			uint32_t UB = B > 255 ? B / 256 : B;
+			uint32_t color = (UR << 0) | (UG << 8) | (UB << 16);
 
 			targetBuffer->set<int32_t>(X, TARGET_SZ * i + TARGET_START_X); // 4 bytes
 			targetBuffer->set<int32_t>(Y, TARGET_SZ * i + TARGET_START_Y); // 4 bytes
