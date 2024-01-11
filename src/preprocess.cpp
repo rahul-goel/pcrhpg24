@@ -1273,5 +1273,29 @@ int main(int argc, char *argv[]) {
   cout << "Compression Ratios: " << endl;
   for (auto &cr : compression_ratios) cout << cr << endl;
 
+  // let's calculate total compression ratio separately
+  double old_geometry_bytes = 12 * num_points;
+  double new_geometry_bytes = 0;
+  new_geometry_bytes += WORKGROUP_SIZE * CLUSTERS_PER_THREAD * num_batches * 3 * 4;
+  new_geometry_bytes += encoding_bytes;
+  new_geometry_bytes += separate_bytes;
+  new_geometry_bytes += WORKGROUP_SIZE * CLUSTERS_PER_THREAD * num_batches * 4;
+  new_geometry_bytes += num_batches * HUFFMAN_TABLE_SIZE * 4;
+  new_geometry_bytes += num_batches * HUFFMAN_TABLE_SIZE * 4;
+  new_geometry_bytes += cluster_bytes;
+
+  double old_color_bytes = 3 * num_points;
+#if COLOR_COMPRESSION==0
+  double new_color_bytes = 3 * num_points;
+#elif COLOR_COMPRESSION==1
+  double new_color_bytes = double(num_points) / 2;
+#elif COLOR_COMPRESSION==7
+  double new_color_bytes = num_points;
+#endif
+
+  cout << "Geometry Compression Ratio: " << old_geometry_bytes / new_geometry_bytes << endl;
+  cout << "Color Compression Ratio: " << old_color_bytes / new_color_bytes << endl;
+  cout << "Total Compression Ratio: " << (old_geometry_bytes + old_color_bytes) / (new_geometry_bytes + new_color_bytes) << endl;
+
   return 0;
 }
