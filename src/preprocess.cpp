@@ -1140,14 +1140,12 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     }
 
     // separate
-    bdd.separate_offsets.resize(WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
     bdd.separate_sizes.resize(WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
     for (int i = 0; i < WORKGROUP_SIZE * CLUSTERS_PER_THREAD; ++i) {
       auto &src = b.chains[i].encoded_markus.second;
       auto &dst = bdd.separate;
-      bdd.separate_offsets[i] = dst.size();
       dst.insert(dst.end(), src.begin(), src.end());
-      bdd.separate_sizes[i] = dst.size() - bdd.separate_offsets[i];
+      bdd.separate_sizes[i] = dst.size();
     }
 
 #if COLOR_COMPRESSION == 0

@@ -169,7 +169,6 @@ void kernel(const ChangingRenderData           cdata,
                   int                         *StartValues,
                   unsigned int                *EncodedData,
                   int                         *SeparateData,
-                  int                         *SeparateDataOffsets,
                   int                         *SeparateDataSizes,
                   int                         *DecoderTableValues,
                   int                         *DecoderTableCWLen,
@@ -253,13 +252,15 @@ void kernel(const ChangingRenderData           cdata,
     for (int outer = 0; outer < CLUSTERS_PER_THREAD; ++outer) {
       // where to read encoded data from?
       long long EncodedPtr = batch.encoding_batch_offset;
+      long long sep_ptr = batch.separate_batch_offset;
+
       int ClusterIdx = (blockDim.x / 32 * outer) + threadIdx.x / 32;
       if (ClusterIdx >= 1) {
         EncodedPtr += ClusterSizes[blockIdx.x * (blockDim.x * CLUSTERS_PER_THREAD / 32) + ClusterIdx - 1];
       }
-
-      // where to read separate data from?
-      long long sep_ptr = batch.separate_batch_offset + SeparateDataOffsets[blockIdx.x * blockDim.x * CLUSTERS_PER_THREAD + outer * blockDim.x + threadIdx.x];
+      if (outer != 0 or threadIdx.x != 0) {
+        sep_ptr += SeparateDataSizes[blockIdx.x * blockDim.x * CLUSTERS_PER_THREAD + outer * blockDim.x + threadIdx.x - 1];
+      }
 
       int tid = threadIdx.x % 32;
       unsigned int CurHuffman = EncodedData[EncodedPtr + tid];
@@ -321,13 +322,15 @@ void kernel(const ChangingRenderData           cdata,
     for (int outer = 0; outer < CLUSTERS_PER_THREAD; ++outer) {
       // where to read encoded data from?
       long long EncodedPtr = batch.encoding_batch_offset;
+      long long sep_ptr = batch.separate_batch_offset;
+
       int ClusterIdx = (blockDim.x / 32 * outer) + threadIdx.x / 32;
       if (ClusterIdx >= 1) {
         EncodedPtr += ClusterSizes[blockIdx.x * (blockDim.x * CLUSTERS_PER_THREAD / 32) + ClusterIdx - 1];
       }
-
-      // where to read separate data from?
-      long long sep_ptr = batch.separate_batch_offset + SeparateDataOffsets[blockIdx.x * blockDim.x * CLUSTERS_PER_THREAD + outer * blockDim.x + threadIdx.x];
+      if (outer != 0 or threadIdx.x != 0) {
+        sep_ptr += SeparateDataSizes[blockIdx.x * blockDim.x * CLUSTERS_PER_THREAD + outer * blockDim.x + threadIdx.x - 1];
+      }
 
       int tid = threadIdx.x % 32;
       unsigned int CurHuffman = EncodedData[EncodedPtr + tid];

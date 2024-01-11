@@ -40,7 +40,6 @@ struct HuffmanHQS : public Method {
   CUgraphicsResource StartValues;
   CUgraphicsResource EncodedData;
   CUgraphicsResource SeparateData;
-  CUgraphicsResource SeparateDataOffsets;
   CUgraphicsResource SeparateDataSizes;
   CUgraphicsResource DecoderTableValues;
   CUgraphicsResource DecoderTableCWLen;
@@ -54,7 +53,6 @@ struct HuffmanHQS : public Method {
   CUdeviceptr StartValues_ptr;
   CUdeviceptr EncodedData_ptr;
   CUdeviceptr SeparateData_ptr;
-  CUdeviceptr SeparateDataOffsets_ptr;
   CUdeviceptr SeparateDataSizes_ptr;
   CUdeviceptr DecoderTableValues_ptr;
   CUdeviceptr DecoderTableCWLen_ptr;
@@ -91,7 +89,7 @@ struct HuffmanHQS : public Method {
       vector<CUgraphicsResource> persistent_resources = {
         BatchData, StartValues,
         EncodedData,
-        SeparateData, SeparateDataOffsets, SeparateDataSizes,
+        SeparateData, SeparateDataSizes,
         DecoderTableValues, DecoderTableCWLen, ClusterSizes, Colors
       };
 
@@ -102,7 +100,6 @@ struct HuffmanHQS : public Method {
       cuGraphicsUnregisterResource(StartValues);
       cuGraphicsUnregisterResource(EncodedData);
       cuGraphicsUnregisterResource(SeparateData);
-      cuGraphicsUnregisterResource(SeparateDataOffsets);
       cuGraphicsUnregisterResource(SeparateDataSizes);
       cuGraphicsUnregisterResource(DecoderTableValues);
       cuGraphicsUnregisterResource(DecoderTableCWLen);
@@ -188,7 +185,6 @@ struct HuffmanHQS : public Method {
       cuGraphicsGLRegisterBuffer(&StartValues,         las->StartValues.handle,         CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
       cuGraphicsGLRegisterBuffer(&EncodedData,         las->EncodedData.handle,         CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
       cuGraphicsGLRegisterBuffer(&SeparateData,        las->SeparateData.handle,        CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
-      cuGraphicsGLRegisterBuffer(&SeparateDataOffsets, las->SeparateDataOffsets.handle, CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
       cuGraphicsGLRegisterBuffer(&SeparateDataSizes,   las->SeparateDataSizes.handle,   CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
       cuGraphicsGLRegisterBuffer(&DecoderTableValues,  las->DecoderTableValues.handle,  CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
       cuGraphicsGLRegisterBuffer(&DecoderTableCWLen,   las->DecoderTableCWLen.handle,   CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
@@ -201,7 +197,7 @@ struct HuffmanHQS : public Method {
       vector<CUgraphicsResource> persistent_resources = {
         BatchData, StartValues,
         EncodedData,
-        SeparateData, SeparateDataOffsets, SeparateDataSizes,
+        SeparateData, SeparateDataSizes,
         DecoderTableValues, DecoderTableCWLen, ClusterSizes, Colors
       };
 			cuGraphicsMapResources(persistent_resources.size(), persistent_resources.data(), ((CUstream)CU_STREAM_DEFAULT));
@@ -217,7 +213,6 @@ struct HuffmanHQS : public Method {
       cuGraphicsResourceGetMappedPointer(&StartValues_ptr, &size, StartValues);
       cuGraphicsResourceGetMappedPointer(&EncodedData_ptr, &size, EncodedData);
       cuGraphicsResourceGetMappedPointer(&SeparateData_ptr, &size, SeparateData);
-      cuGraphicsResourceGetMappedPointer(&SeparateDataOffsets_ptr, &size, SeparateDataOffsets);
       cuGraphicsResourceGetMappedPointer(&SeparateDataSizes_ptr, &size, SeparateDataSizes);
       cuGraphicsResourceGetMappedPointer(&DecoderTableValues_ptr, &size, DecoderTableValues);
       cuGraphicsResourceGetMappedPointer(&DecoderTableCWLen_ptr, &size, DecoderTableCWLen);
@@ -265,7 +260,7 @@ struct HuffmanHQS : public Method {
       void *args[] = {&cdata, &fb,
       &BatchData_ptr, &StartValues_ptr,
       &EncodedData_ptr,
-      &SeparateData_ptr, &SeparateDataOffsets_ptr, &SeparateDataSizes_ptr,
+      &SeparateData_ptr, &SeparateDataSizes_ptr,
       &DecoderTableValues_ptr, &DecoderTableCWLen_ptr, &ClusterSizes_ptr, &Colors_ptr};
 
       // cout << "launching kernel " << numBatches << " " << WORKGROUP_SIZE << endl;
@@ -278,7 +273,7 @@ struct HuffmanHQS : public Method {
       void *args2[] = {&cdata, &fb, &RG, &BA,
       &BatchData_ptr, &StartValues_ptr,
       &EncodedData_ptr,
-      &SeparateData_ptr, &SeparateDataOffsets_ptr, &SeparateDataSizes_ptr,
+      &SeparateData_ptr, &SeparateDataSizes_ptr,
       &DecoderTableValues_ptr, &DecoderTableCWLen_ptr, &ClusterSizes_ptr, &Colors_ptr};
 
 			cuLaunchKernel(renderProg->kernel,

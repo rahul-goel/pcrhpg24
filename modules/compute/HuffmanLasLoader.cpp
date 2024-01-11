@@ -31,7 +31,6 @@ void HuffmanLasData::load(Renderer *renderer) {
     // additional small buffer to avoid wrong memory access for the last batch during read of "NextHuffman"
     this->EncodedData           = renderer->createBuffer(this->encodedBytes + 4 * WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
     this->SeparateData          = renderer->createBuffer(this->separateBytes);
-    this->SeparateDataOffsets   = renderer->createBuffer(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 4);
     this->SeparateDataSizes     = renderer->createBuffer(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 4);
 #if COLOR_COMPRESSION==0
     this->Colors                = renderer->createBuffer(this->numPoints * 4);
@@ -50,7 +49,6 @@ void HuffmanLasData::load(Renderer *renderer) {
 		glClearNamedBufferData(this->StartValues.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 		glClearNamedBufferData(this->EncodedData.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 		glClearNamedBufferData(this->SeparateData.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
-		glClearNamedBufferData(this->SeparateDataOffsets.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 		glClearNamedBufferData(this->SeparateDataSizes.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 		glClearNamedBufferData(this->Colors.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 		glClearNamedBufferData(this->DecoderTableValues.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
@@ -123,7 +121,6 @@ void HuffmanLasData::unload(Renderer *renderer) {
   glDeleteBuffers(1, &StartValues.handle);
   glDeleteBuffers(1, &EncodedData.handle);
   glDeleteBuffers(1, &SeparateData.handle);
-  glDeleteBuffers(1, &SeparateDataOffsets.handle);
   glDeleteBuffers(1, &SeparateDataSizes.handle);
   glDeleteBuffers(1, &Colors.handle);
   glDeleteBuffers(1, &DecoderTableValues.handle);
@@ -235,12 +232,6 @@ void HuffmanLasData::process(Renderer *renderer) {
       size_t size = arr.size() * sizeof(arr[0]);
       glNamedBufferSubData(this->SeparateData.handle, offset, size, arr.data());
       SeparatePtr += arr.size();
-    }
-    { // separate_offsets
-      auto &arr = bdd.separate_offsets;
-      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * CLUSTERS_PER_THREAD * sizeof(arr[0]);
-      size_t size = arr.size() * sizeof(arr[0]);
-      glNamedBufferSubData(this->SeparateDataOffsets.handle, offset, size, arr.data());
     }
     { // separate_sizes
       auto &arr = bdd.separate_sizes;
