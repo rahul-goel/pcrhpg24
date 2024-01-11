@@ -1,4 +1,4 @@
-#define DTABLE_SIZE 1024
+#define DTABLE_SIZE 4096
 #define COLOR_COMPRESSION 1 // 0 -> no compression, 1 -> bc1, 7 -> bc7
 #define CLUSTERS_PER_THREAD 1
 

@@ -1,4 +1,4 @@
-#define DTABLE_SIZE 1024
+#define DTABLE_SIZE 4096
 #define CLUSTERS_PER_THREAD 1
 
 #include "huffman_kernel_data.h"
