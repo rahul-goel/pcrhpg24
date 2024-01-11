@@ -724,7 +724,7 @@ struct Batch {
     // rearrange_rahul();
 
     // encode color
-    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+    for (int i = 0; i < WORKGROUP_SIZE * CLUSTERS_PER_THREAD; ++i) {
 #if COLOR_COMPRESSION==0
 #elif COLOR_COMPRESSION==1
       chains[i].encode_color_bc1();
@@ -1180,7 +1180,7 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     // BC1 ENCODING
     assert(bdd.num_points % 16 == 0);
     bdd.color.clear();
-    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+    for (int i = 0; i < WORKGROUP_SIZE * CLUSTERS_PER_THREAD; ++i) {
       auto &dst = bdd.color;
       auto &src = b.chains[i].color_bc1;
       dst.insert(dst.end(), src.begin(), src.end());
@@ -1190,7 +1190,7 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     // BC7 ENCODING
     assert(bdd.num_points % 16 == 0);
     bdd.color.clear();
-    for (int i = 0; i < WORKGROUP_SIZE; ++i) {
+    for (int i = 0; i < WORKGROUP_SIZE * CLUSTERS_PER_THREAD; ++i) {
       auto &dst = bdd.color;
       auto &src = b.chains[i].color_bc7;
       dst.insert(dst.end(), src.begin(), src.end());

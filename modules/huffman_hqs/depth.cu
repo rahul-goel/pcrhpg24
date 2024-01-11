@@ -1,4 +1,4 @@
-#define DTABLE_SIZE 4096
+#define DTABLE_SIZE 1024
 #define CLUSTERS_PER_THREAD 1
 
 #include "huffman_kernel_data.h"
@@ -220,7 +220,7 @@ void kernel(const ChangingRenderData           cdata,
 		float pixelSize = sqrt(diff.x*diff.x + diff.y*diff.y);
     float percentage = 0;
 
-    Shared_UseDouble = pixelSize >= 300.0;
+    Shared_UseDouble = pixelSize >= 100.0f;
 
     pixelSize /= 100.0;
     percentage = (1.8f * pixelSize - 0.3);

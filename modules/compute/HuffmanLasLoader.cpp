@@ -80,7 +80,7 @@ void HuffmanLasData::load(Renderer *renderer) {
 
       // poll to check if the currently read batch has been processed or not
       if (ref->task) {
-        this_thread::sleep_for(1ms);
+        this_thread::sleep_for(0.1ms);
         continue;
       }
 
