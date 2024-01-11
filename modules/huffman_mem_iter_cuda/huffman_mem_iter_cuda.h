@@ -38,8 +38,6 @@ struct HuffmanMemIter : public Method {
   CUgraphicsResource BatchData;
   CUgraphicsResource StartValues;
   CUgraphicsResource EncodedData;
-  CUgraphicsResource EncodedDataOffsets;
-  CUgraphicsResource EncodedDataSizes;
   CUgraphicsResource SeparateData;
   CUgraphicsResource SeparateDataOffsets;
   CUgraphicsResource SeparateDataSizes;
@@ -54,8 +52,6 @@ struct HuffmanMemIter : public Method {
   CUdeviceptr BatchData_ptr;
   CUdeviceptr StartValues_ptr;
   CUdeviceptr EncodedData_ptr;
-  CUdeviceptr EncodedDataOffsets_ptr;
-  CUdeviceptr EncodedDataSizes_ptr;
   CUdeviceptr SeparateData_ptr;
   CUdeviceptr SeparateDataOffsets_ptr;
   CUdeviceptr SeparateDataSizes_ptr;
@@ -90,7 +86,7 @@ struct HuffmanMemIter : public Method {
 		if (registered) {
       vector<CUgraphicsResource> persistent_resources = {
         BatchData, StartValues,
-        EncodedData, EncodedDataOffsets, EncodedDataSizes,
+        EncodedData,
         SeparateData, SeparateDataOffsets, SeparateDataSizes,
         DecoderTableValues, DecoderTableCWLen, ClusterSizes, Colors
       };
@@ -101,8 +97,6 @@ struct HuffmanMemIter : public Method {
       cuGraphicsUnregisterResource(BatchData);
       cuGraphicsUnregisterResource(StartValues);
       cuGraphicsUnregisterResource(EncodedData);
-      cuGraphicsUnregisterResource(EncodedDataOffsets);
-      cuGraphicsUnregisterResource(EncodedDataSizes);
       cuGraphicsUnregisterResource(SeparateData);
       cuGraphicsUnregisterResource(SeparateDataOffsets);
       cuGraphicsUnregisterResource(SeparateDataSizes);
@@ -189,8 +183,6 @@ struct HuffmanMemIter : public Method {
       cuGraphicsGLRegisterBuffer(&BatchData,           las->BatchData.handle,           CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
       cuGraphicsGLRegisterBuffer(&StartValues,         las->StartValues.handle,         CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
       cuGraphicsGLRegisterBuffer(&EncodedData,         las->EncodedData.handle,         CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
-      cuGraphicsGLRegisterBuffer(&EncodedDataOffsets,  las->EncodedDataOffsets.handle,  CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
-      cuGraphicsGLRegisterBuffer(&EncodedDataSizes,    las->EncodedDataSizes.handle,    CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
       cuGraphicsGLRegisterBuffer(&SeparateData,        las->SeparateData.handle,        CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
       cuGraphicsGLRegisterBuffer(&SeparateDataOffsets, las->SeparateDataOffsets.handle, CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
       cuGraphicsGLRegisterBuffer(&SeparateDataSizes,   las->SeparateDataSizes.handle,   CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
@@ -204,7 +196,7 @@ struct HuffmanMemIter : public Method {
 
       vector<CUgraphicsResource> persistent_resources = {
         BatchData, StartValues,
-        EncodedData, EncodedDataOffsets, EncodedDataSizes,
+        EncodedData,
         SeparateData, SeparateDataOffsets, SeparateDataSizes,
         DecoderTableValues, DecoderTableCWLen, ClusterSizes, Colors
       };
@@ -220,8 +212,6 @@ struct HuffmanMemIter : public Method {
       cuGraphicsResourceGetMappedPointer(&BatchData_ptr, &size, BatchData);
       cuGraphicsResourceGetMappedPointer(&StartValues_ptr, &size, StartValues);
       cuGraphicsResourceGetMappedPointer(&EncodedData_ptr, &size, EncodedData);
-      cuGraphicsResourceGetMappedPointer(&EncodedDataOffsets_ptr, &size, EncodedDataOffsets);
-      cuGraphicsResourceGetMappedPointer(&EncodedDataSizes_ptr, &size, EncodedDataSizes);
       cuGraphicsResourceGetMappedPointer(&SeparateData_ptr, &size, SeparateData);
       cuGraphicsResourceGetMappedPointer(&SeparateDataOffsets_ptr, &size, SeparateDataOffsets);
       cuGraphicsResourceGetMappedPointer(&SeparateDataSizes_ptr, &size, SeparateDataSizes);
@@ -270,7 +260,7 @@ struct HuffmanMemIter : public Method {
       // kernel launch
       void *args[] = {&cdata, &fb,
       &BatchData_ptr, &StartValues_ptr,
-      &EncodedData_ptr, &EncodedDataOffsets_ptr, &EncodedDataSizes_ptr,
+      &EncodedData_ptr,
       &SeparateData_ptr, &SeparateDataOffsets_ptr, &SeparateDataSizes_ptr,
       &DecoderTableValues_ptr, &DecoderTableCWLen_ptr, &ClusterSizes_ptr, &Colors_ptr};
 

@@ -34,7 +34,6 @@ struct BatchDumpData {
 
   vector<int32_t> start_values;
 
-  vector<int32_t> encoding_offsets, encoding_sizes;
   vector<uint32_t> encoding;
   vector<int32_t> separate_offsets, separate_sizes;
   vector<int32_t>  separate;
@@ -51,8 +50,6 @@ struct BatchDumpData {
     total_size += decoder_values.size()           * 4;
     total_size += decoder_cw_len.size()           * 4;
     total_size += cluster_sizes.size()            * 4;
-    total_size += encoding_offsets.size()         * 4;
-    total_size += encoding_sizes.size()           * 4;
     total_size += encoding.size()                 * 4;
     total_size += separate_offsets.size()         * 4;
     total_size += separate_sizes.size()           * 4;
@@ -108,8 +105,6 @@ struct BatchDumpData {
     offset += 4;
 
     start_values.resize(num_threads * clusters_per_thread * 3);
-    encoding_offsets.resize(num_threads * clusters_per_thread);
-    encoding_sizes.resize(num_threads * clusters_per_thread);
     separate_offsets.resize(num_threads * clusters_per_thread);
     separate_sizes.resize(num_threads * clusters_per_thread);
     decoder_values.resize(dt_size);
@@ -119,12 +114,6 @@ struct BatchDumpData {
     // What are the 3 start values for each of the individual strip/chain?
     memcpy(start_values.data(), buf_ptr + offset, start_values.size() * 4);
     offset += 4 * start_values.size();
-    // For each strip/chain, where does it's Huffman Encoded Data start?
-    memcpy(encoding_offsets.data(), buf_ptr + offset, encoding_offsets.size() * 4);
-    offset += 4 * encoding_offsets.size();
-    // For each strip/chain, what is the size of it's Huffman Encoded Data stream?
-    memcpy(encoding_sizes.data(), buf_ptr + offset, encoding_sizes.size() * 4);
-    offset += 4 * encoding_sizes.size();
     // For each strip/chain, where does it's Non-Huffman Encoded Data start?
     memcpy(separate_offsets.data(), buf_ptr + offset, separate_offsets.size() * 4);
     offset += 4 * separate_offsets.size();
@@ -141,7 +130,7 @@ struct BatchDumpData {
     memcpy(cluster_sizes.data(), buf_ptr + offset, cluster_sizes.size() * 4);
     offset += 4 * cluster_sizes.size();
 
-    encoding.resize(accumulate(encoding_sizes.begin(), encoding_sizes.end(), 0ll));
+    encoding.resize(cluster_sizes.back());
     separate.resize(accumulate(separate_sizes.begin(), separate_sizes.end(), 0ll));
 #if COLOR_COMPRESSION==0
     color.resize(num_points);
@@ -198,10 +187,6 @@ struct BatchDumpData {
 
     memcpy(buffer.data() + offset, start_values.data(), start_values.size() * 4);
     offset += 4 * start_values.size();
-    memcpy(buffer.data() + offset, encoding_offsets.data(), encoding_offsets.size() * 4);
-    offset += 4 * encoding_offsets.size();
-    memcpy(buffer.data() + offset, encoding_sizes.data(), encoding_sizes.size() * 4);
-    offset += 4 * encoding_sizes.size();
     memcpy(buffer.data() + offset, separate_offsets.data(), separate_offsets.size() * 4);
     offset += 4 * separate_offsets.size();
     memcpy(buffer.data() + offset, separate_sizes.data(), separate_sizes.size() * 4);
@@ -257,10 +242,6 @@ struct BatchDumpData {
 
     memcpy(buffer + offset, start_values.data(), start_values.size() * 4);
     offset += 4 * start_values.size();
-    memcpy(buffer + offset, encoding_offsets.data(), encoding_offsets.size() * 4);
-    offset += 4 * encoding_offsets.size();
-    memcpy(buffer + offset, encoding_sizes.data(), encoding_sizes.size() * 4);
-    offset += 4 * encoding_sizes.size();
     memcpy(buffer + offset, separate_offsets.data(), separate_offsets.size() * 4);
     offset += 4 * separate_offsets.size();
     memcpy(buffer + offset, separate_sizes.data(), separate_sizes.size() * 4);

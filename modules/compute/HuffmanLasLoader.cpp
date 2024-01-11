@@ -30,8 +30,6 @@ void HuffmanLasData::load(Renderer *renderer) {
     this->StartValues           = renderer->createBuffer(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 3 * 4);
     // additional small buffer to avoid wrong memory access for the last batch during read of "NextHuffman"
     this->EncodedData           = renderer->createBuffer(this->encodedBytes + 4 * WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
-    this->EncodedDataOffsets    = renderer->createBuffer(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 4);
-    this->EncodedDataSizes      = renderer->createBuffer(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 4);
     this->SeparateData          = renderer->createBuffer(this->separateBytes);
     this->SeparateDataOffsets   = renderer->createBuffer(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 4);
     this->SeparateDataSizes     = renderer->createBuffer(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 4);
@@ -51,8 +49,6 @@ void HuffmanLasData::load(Renderer *renderer) {
 		glClearNamedBufferData(this->BatchData.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 		glClearNamedBufferData(this->StartValues.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 		glClearNamedBufferData(this->EncodedData.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
-		glClearNamedBufferData(this->EncodedDataOffsets.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
-		glClearNamedBufferData(this->EncodedDataSizes.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 		glClearNamedBufferData(this->SeparateData.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 		glClearNamedBufferData(this->SeparateDataOffsets.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 		glClearNamedBufferData(this->SeparateDataSizes.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
@@ -126,8 +122,6 @@ void HuffmanLasData::unload(Renderer *renderer) {
   glDeleteBuffers(1, &BatchData.handle);
   glDeleteBuffers(1, &StartValues.handle);
   glDeleteBuffers(1, &EncodedData.handle);
-  glDeleteBuffers(1, &EncodedDataOffsets.handle);
-  glDeleteBuffers(1, &EncodedDataSizes.handle);
   glDeleteBuffers(1, &SeparateData.handle);
   glDeleteBuffers(1, &SeparateDataOffsets.handle);
   glDeleteBuffers(1, &SeparateDataSizes.handle);
@@ -234,18 +228,6 @@ void HuffmanLasData::process(Renderer *renderer) {
       size_t size = arr.size() * sizeof(arr[0]);
       glNamedBufferSubData(this->EncodedData.handle, offset, size, arr.data());
       EncodedPtr += arr.size();
-    }
-    { // encoding_offsets
-      auto &arr = bdd.encoding_offsets;
-      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * CLUSTERS_PER_THREAD * sizeof(arr[0]);
-      size_t size = arr.size() * sizeof(arr[0]);
-      glNamedBufferSubData(this->EncodedDataOffsets.handle, offset, size, arr.data());
-    }
-    { // encoding_sizes
-      auto &arr = bdd.encoding_sizes;
-      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * CLUSTERS_PER_THREAD * sizeof(arr[0]);
-      size_t size = arr.size() * sizeof(arr[0]);
-      glNamedBufferSubData(this->EncodedDataSizes.handle, offset, size, arr.data());
     }
     { // separate
       auto &arr = bdd.separate;

@@ -1133,30 +1133,10 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
     }
 
     // encoding
-    bdd.encoding_offsets.resize(WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
-    bdd.encoding_sizes.resize(WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
     for (int wid = 0; wid < WORKGROUP_SIZE * CLUSTERS_PER_THREAD / 32; ++wid) {
       auto &src = b.packed_warps[wid];
       auto &dst = bdd.encoding;
       dst.insert(dst.end(), src.begin(), src.end());
-    }
-    // int len = b.chains[0].encoded_markus.first.size();
-    // auto &dst = bdd.encoding;
-    // assert(len % 4 == 0);
-    // for (int i = 0; i < len; i += 4) {
-    //   for (int tid = 0; tid < WORKGROUP_SIZE; ++tid) {
-    //     auto &src = b.chains[tid].encoded_markus.first;
-    //     dst.insert(dst.end(), {src[i], src[i + 1], src[i + 2], src[i + 3]});
-    //   }
-    // }
-
-    // for (int tid = 0; tid < WORKGROUP_SIZE; ++tid) {
-    //   bdd.encoding_offsets[tid] = 0;
-    //   bdd.encoding_sizes[tid] = len;
-    // }
-
-    for (int tid = 0; tid < WORKGROUP_SIZE * CLUSTERS_PER_THREAD; ++tid) {
-      bdd.encoding_sizes[tid] = b.chains[tid].encoded_markus.first.size();
     }
 
     // separate
