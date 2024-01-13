@@ -39,5 +39,5 @@ void main(){
 	imageStore(uOutput, pixelCoords, icolor);
 
 	// rgb(60, 50, 30) = 0x3c321e (0xRGB)
-	ssFramebuffer[pixelID] = 0xffffffffff3c321eUL;
+	ssFramebuffer[pixelID] = 0xffffffff00443322UL;
 }

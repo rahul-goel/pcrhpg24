@@ -34,7 +34,7 @@ uvec4 rgbAt(int pixelID){
 	uint b = ssRGBA[4 * pixelID + 3] / a;
 
 	if(a == 0){
-		return uvec4(30, 50, 60, 255);
+		return uvec4(34, 51, 68, 255);
 	}
 
 	uvec4 icolor = uvec4(r, g, b, a);

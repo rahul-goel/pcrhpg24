@@ -197,8 +197,8 @@ struct Compute2021HQS : public Method{
 
 			glBindImageTexture(0, fbo->colorAttachments[0]->handle, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA8UI);
 
-			int groups_x = fbo->width / 16;
-			int groups_y = fbo->height / 16;
+			int groups_x = ceil(float(fbo->width) / 16.0f);
+			int groups_y = ceil(float(fbo->height) / 16.0f);
 			glDispatchCompute(groups_x, groups_y, 1);
 			
 

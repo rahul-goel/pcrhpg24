@@ -27,6 +27,7 @@
 #include "Method.h"
 #include "Runtime.h"
 #include "compute/LasLoaderStandard.h"
+#include "tinyexr.h"
 
 using namespace std;
 using namespace std::chrono_literals;
@@ -47,6 +48,9 @@ struct ComputeDedup : public Method{
 
 	Renderer* renderer = nullptr;
 
+  // optional saving of depth image
+  vector<float> depthmap;
+
 	ComputeDedup(Renderer* renderer, shared_ptr<LasStandardData> las){
 
 		this->name = "(2021) dedup";
@@ -66,6 +70,51 @@ struct ComputeDedup : public Method{
 		GLuint zero = 0;
 		glClearNamedBufferData(ssDebug.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
 	}
+
+  bool saveSingleChannelEXR(const char* filename, const float* depthData, int width, int height) {
+    // Define image attributes
+    EXRHeader header;
+    InitEXRHeader(&header);
+
+    EXRImage image;
+    InitEXRImage(&image);
+
+    // Set image data in EXRImage struct
+    image.num_channels = 1;  // Single channel for depth
+    image.width = width;
+    image.height = height;
+    image.images = (unsigned char**)(&depthData);
+
+    header.num_channels = 1;
+    header.channels = (EXRChannelInfo*)malloc(sizeof(EXRChannelInfo) * header.num_channels);
+    header.pixel_types = (int*)malloc(sizeof(int) * header.num_channels);
+    header.requested_pixel_types = (int*)malloc(sizeof(int) * header.num_channels);
+
+    // Specify channel information for depth
+    strncpy(header.channels[0].name, "Z", sizeof(header.channels[0].name));
+    header.channels[0].name[sizeof(header.channels[0].name) - 1] = '\0';
+    header.channels[0].pixel_type = TINYEXR_PIXELTYPE_FLOAT;  // Using float pixel type
+    header.channels[0].p_linear = 0;
+    header.pixel_types[0] = TINYEXR_PIXELTYPE_FLOAT;
+    header.requested_pixel_types[0] = TINYEXR_PIXELTYPE_FLOAT;
+
+    // Save EXR image
+    const char* err = nullptr;
+    int ret = SaveEXRImageToFile(&image, &header, filename, &err);
+
+    // Clean up
+    free(header.channels);
+    free(header.pixel_types);
+    free(header.requested_pixel_types);
+
+    if (ret != TINYEXR_SUCCESS) {
+      printf("Error saving EXR file: %s\n", err);
+      free((void *) err);
+      return false;
+    }
+
+    return true;
+  }
 	
 	void update(Renderer* renderer){
 
@@ -137,6 +186,33 @@ struct ComputeDedup : public Method{
 			GLTimerQueries::timestamp("draw-end");
 		}
 
+    // saving depthmap
+    if (Debug::saveDepthMap) {
+      vector<uint64_t> fb_host(fbo->height * fbo->width);
+			glBindFramebuffer(GL_FRAMEBUFFER, ssFramebuffer.handle);
+      // glReadPixels(0, 0, fbo->width, fbo->height, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT64_NV, fb_host.data());
+      glGetNamedBufferSubData(ssFramebuffer.handle, 0, fbo->height * fbo->width * 8, fb_host.data());
+      glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+      bool seen = false;
+
+      depthmap.clear();
+      depthmap.resize(fbo->height * fbo->width, 0.0f);
+      for (int i = 0; i < fbo->height; ++i) {
+        for (int j = 0; j < fbo->width; ++j) {
+          unsigned int value = (fb_host[i * fbo->width + j] >> 24) & UINT_MAX;
+          float fvalue = *((float *) &value);
+          if (fvalue < 0 || fvalue != fvalue) continue;
+          depthmap[(fbo->height - i - 1) * fbo->width + j] = fvalue;
+          // cout << *((float *) &value) << endl;
+        }
+      }
+
+      saveSingleChannelEXR("out/depth.exr", depthmap.data(), fbo->width, fbo->height);
+      Debug::saveDepthMap = false;
+    }
+
+
 		// RESOLVE
 		if(csResolve->program != -1)
 		{ 
@@ -150,8 +226,8 @@ struct ComputeDedup : public Method{
 
 			glBindImageTexture(0, fbo->colorAttachments[0]->handle, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA8UI);
 
-			int groups_x = fbo->width / 16;
-			int groups_y = fbo->height / 16;
+			int groups_x = ceil(float(fbo->width) / 16.0f);
+			int groups_y = ceil(float(fbo->height) / 16.0f);
 			glDispatchCompute(groups_x, groups_y, 1);
 			
 
