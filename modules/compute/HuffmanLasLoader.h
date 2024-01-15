@@ -31,18 +31,15 @@ struct HuffmanLasData : public Resource {
   int64_t   offsetToBatchData           = 0;
 
   // GL Buffers
-  GLBuffer BatchData;                   // stores data common to all points in a batch
-  GLBuffer StartValues;                 // starting points for each thread/chain
-  GLBuffer EncodedData;                 // the huffman encoded bitstream
-  GLBuffer EncodedDataOffsets;          // each thread asks -> where does my huffman encoded data start?
-  GLBuffer EncodedDataSizes;            // each thread asks -> how big is my huffman encoded data?
-  GLBuffer SeparateData;                // separate (unencoded) data
-  GLBuffer SeparateDataOffsets;         // each thread asks -> where does my separate data start?
-  GLBuffer SeparateDataSizes;           // each thread asks -> how big is my separate data?
-  GLBuffer DecoderTableValues;          // decoder table: index -> symbol
-  GLBuffer DecoderTableCWLen;           // decoder table: index -> codeword length
-  GLBuffer ClusterSizes;                // the number of points in each uvec4
-  GLBuffer Colors;                      // list of colors for all points
+  CuBuffer BatchData;                   // stores data common to all points in a batch
+  CuBuffer StartValues;                 // starting points for each thread/chain
+  CuBuffer EncodedData;                 // the huffman encoded bitstream
+  CuBuffer SeparateData;                // separate (unencoded) data
+  CuBuffer SeparateDataSizes;           // each thread asks -> how big is my separate data?
+  CuBuffer DecoderTableValues;          // decoder table: index -> symbol
+  CuBuffer DecoderTableCWLen;           // decoder table: index -> codeword length
+  CuBuffer ClusterSizes;                // the number of points in each uvec4
+  CuBuffer Colors;                      // list of colors for all points
 
   // From where should I start filling the GL Buffers?
   size_t EncodedPtr = 0;

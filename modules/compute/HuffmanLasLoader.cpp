@@ -6,6 +6,7 @@
 #include "compute/HuffmanLasLoader.h"
 #include "huffman_cuda/huffman_kernel_data.h"
 
+#include "CudaProgram.h"
 #include "BatchDumpData.h"
 #include "Renderer.h"
 #include "GLTimerQueries.h"
@@ -26,34 +27,50 @@ void HuffmanLasData::load(Renderer *renderer) {
   }
 
   { // create buffers
-    this->BatchData             = renderer->createBuffer(GPUBatchSize * numBatches);
-    this->StartValues           = renderer->createBuffer(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 3 * 4);
+    this->BatchData.size         = GPUBatchSize * numBatches;
+    cuMemAlloc(&this->BatchData.handle, this->BatchData.size);
+
+    this->StartValues.size       = WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 3 * 4;
+    cuMemAlloc(&this->StartValues.handle, this->StartValues.size);
+
     // additional small buffer to avoid wrong memory access for the last batch during read of "NextHuffman"
-    this->EncodedData           = renderer->createBuffer(this->encodedBytes + 4 * WORKGROUP_SIZE * CLUSTERS_PER_THREAD);
-    this->SeparateData          = renderer->createBuffer(this->separateBytes);
-    this->SeparateDataSizes     = renderer->createBuffer(WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 4);
+    this->EncodedData.size       = this->encodedBytes + 4 * WORKGROUP_SIZE * CLUSTERS_PER_THREAD;
+    cuMemAlloc(&this->EncodedData.handle, this->EncodedData.size);
+
+    this->SeparateData.size      = this->separateBytes;
+    cuMemAlloc(&this->SeparateData.handle, this->SeparateData.size);
+
+    this->SeparateDataSizes.size = WORKGROUP_SIZE * CLUSTERS_PER_THREAD * numBatches * 4;
+    cuMemAlloc(&this->SeparateDataSizes.handle, this->SeparateDataSizes.size);
+
 #if COLOR_COMPRESSION==0
-    this->Colors                = renderer->createBuffer(this->numPoints * 4);
+    this->Colors.size            = this->numPoints * 4;
+    cuMemAlloc(&this->Colors.handle, this->Colors.size);
 #elif COLOR_COMPRESSION==1
-    this->Colors                = renderer->createBuffer(this->numPoints / 2);
+    this->Colors.size            = this->numPoints / 2;
+    cuMemAlloc(&this->Colors.handle, this->Colors.size);
 #elif COLOR_COMPRESSION==7
-    this->Colors                = renderer->createBuffer(this->numPoints);
+    this->Colors.size            = this->numPoints;
+    cuMemAlloc(&this->Colors.handle, this->Colors.size);
 #endif
 
-    this->DecoderTableValues    = renderer->createBuffer(numBatches * HUFFMAN_TABLE_SIZE * 4);
-    this->DecoderTableCWLen     = renderer->createBuffer(numBatches * HUFFMAN_TABLE_SIZE * 4);
-    this->ClusterSizes          = renderer->createBuffer(this->clusterBytes);
+    this->DecoderTableValues.size = numBatches * HUFFMAN_TABLE_SIZE * 4;
+    cuMemAlloc(&this->DecoderTableValues.handle, this->DecoderTableValues.size);
+    this->DecoderTableCWLen.size = numBatches * HUFFMAN_TABLE_SIZE * 4;
+    cuMemAlloc(&this->DecoderTableCWLen.handle, this->DecoderTableCWLen.size);
+    this->ClusterSizes.size = this->clusterBytes;
+    cuMemAlloc(&this->ClusterSizes.handle, this->ClusterSizes.size);
 
     GLuint zero = 0;
-		glClearNamedBufferData(this->BatchData.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
-		glClearNamedBufferData(this->StartValues.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
-		glClearNamedBufferData(this->EncodedData.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
-		glClearNamedBufferData(this->SeparateData.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
-		glClearNamedBufferData(this->SeparateDataSizes.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
-		glClearNamedBufferData(this->Colors.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
-		glClearNamedBufferData(this->DecoderTableValues.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
-		glClearNamedBufferData(this->DecoderTableCWLen.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
-		glClearNamedBufferData(this->ClusterSizes.handle, GL_R32UI, GL_RED, GL_UNSIGNED_INT, &zero);
+		cuMemsetD8(this->BatchData.handle, 0, this->BatchData.size);
+		cuMemsetD8(this->StartValues.handle, 0, this->StartValues.size);
+    cuMemsetD8(this->EncodedData.handle, 0, this->EncodedData.size);
+    cuMemsetD8(this->SeparateData.handle, 0, this->SeparateData.size);
+    cuMemsetD8(this->SeparateDataSizes.handle, 0, this->SeparateDataSizes.size);
+    cuMemsetD8(this->Colors.handle, 0, this->Colors.size);
+    cuMemsetD8(this->DecoderTableValues.handle, 0, this->DecoderTableValues.size);
+    cuMemsetD8(this->DecoderTableCWLen.handle, 0, this->DecoderTableCWLen.size);
+    cuMemsetD8(this->ClusterSizes.handle, 0, this->ClusterSizes.size);
   }
 
   // start loader thread and detach it immediately
@@ -117,15 +134,15 @@ void HuffmanLasData::unload(Renderer *renderer) {
   this->numBatchesLoaded = 0;
 
   // delete buffers
-  glDeleteBuffers(1, &BatchData.handle);
-  glDeleteBuffers(1, &StartValues.handle);
-  glDeleteBuffers(1, &EncodedData.handle);
-  glDeleteBuffers(1, &SeparateData.handle);
-  glDeleteBuffers(1, &SeparateDataSizes.handle);
-  glDeleteBuffers(1, &Colors.handle);
-  glDeleteBuffers(1, &DecoderTableValues.handle);
-  glDeleteBuffers(1, &DecoderTableCWLen.handle);
-  glDeleteBuffers(1, &ClusterSizes.handle);
+  cuMemFree(BatchData.handle);
+  cuMemFree(StartValues.handle);
+  cuMemFree(EncodedData.handle);
+  cuMemFree(SeparateData.handle);
+  cuMemFree(SeparateDataSizes.handle);
+  cuMemFree(Colors.handle);
+  cuMemFree(DecoderTableValues.handle);
+  cuMemFree(DecoderTableCWLen.handle);
+  cuMemFree(ClusterSizes.handle);
 
   lock_guard<mutex> lock(huffman_mtx_state);
   if (state == ResourceState::LOADED) {
@@ -190,18 +207,18 @@ void HuffmanLasData::process(Renderer *renderer) {
       // GPUBatch
       size_t offset = GPUBatchSize * this->task->batchIdx;
       size_t size = GPUBatchSize;
-      glNamedBufferSubData(this->BatchData.handle, offset, size, &batch);
+      cuMemcpyHtoD(this->BatchData.handle + offset, &batch, size);
     }
     { // decoder table
       auto &arr1 = bdd.decoder_values;
       size_t offset1 = DecoderTablePtr * sizeof(arr1[0]);
       size_t size1 = arr1.size() * sizeof(arr1[0]);
-      glNamedBufferSubData(this->DecoderTableValues.handle, offset1, size1, arr1.data());
+      cuMemcpyHtoD(this->DecoderTableValues.handle + offset1, arr1.data(), size1);
 
       auto &arr2 = bdd.decoder_cw_len;
       size_t offset2 = DecoderTablePtr * sizeof(arr2[0]);
       size_t size2 = arr2.size() * sizeof(arr2[0]);
-      glNamedBufferSubData(this->DecoderTableCWLen.handle, offset2, size2, arr2.data());
+      cuMemcpyHtoD(this->DecoderTableCWLen.handle + offset2, arr2.data(), size2);
 
       assert(arr1.size() == arr2.size());
       DecoderTablePtr += arr1.size();
@@ -210,34 +227,35 @@ void HuffmanLasData::process(Renderer *renderer) {
       auto &arr = bdd.cluster_sizes;
       size_t offset = ClusterSizesPtr * sizeof(arr[0]);
       size_t size = arr.size() * sizeof(arr[0]);
-      glNamedBufferSubData(this->ClusterSizes.handle, offset, size, arr.data());
+      // glNamedBufferSubData(this->ClusterSizes.handle, offset, size, arr.data());
+      cuMemcpyHtoD(this->ClusterSizes.handle + offset, arr.data(), size);
       ClusterSizesPtr += arr.size();
     }
     { // start values
       auto &arr = bdd.start_values;
       size_t offset = this->task->batchIdx * WORKGROUP_SIZE * CLUSTERS_PER_THREAD * 3 * sizeof(arr[0]);
       size_t size = arr.size() * sizeof(arr[0]);
-      glNamedBufferSubData(this->StartValues.handle, offset, size, arr.data());
+      cuMemcpyHtoD(this->StartValues.handle + offset, arr.data(), size);
     }
     { // encoding
       auto &arr = bdd.encoding;
       size_t offset = EncodedPtr * sizeof(arr[0]);
       size_t size = arr.size() * sizeof(arr[0]);
-      glNamedBufferSubData(this->EncodedData.handle, offset, size, arr.data());
+      cuMemcpyHtoD(this->EncodedData.handle + offset, arr.data(), size);
       EncodedPtr += arr.size();
     }
     { // separate
       auto &arr = bdd.separate;
       size_t offset = SeparatePtr * sizeof(arr[0]);
       size_t size = arr.size() * sizeof(arr[0]);
-      glNamedBufferSubData(this->SeparateData.handle, offset, size, arr.data());
+      cuMemcpyHtoD(this->SeparateData.handle + offset, arr.data(), size);
       SeparatePtr += arr.size();
     }
     { // separate_sizes
       auto &arr = bdd.separate_sizes;
       size_t offset = this->task->batchIdx * WORKGROUP_SIZE * CLUSTERS_PER_THREAD * sizeof(arr[0]);
       size_t size = arr.size() * sizeof(arr[0]);
-      glNamedBufferSubData(this->SeparateDataSizes.handle, offset, size, arr.data());
+      cuMemcpyHtoD(this->SeparateDataSizes.handle + offset, arr.data(), size);
     }
     { // color
       auto &arr = bdd.color;
@@ -249,7 +267,7 @@ void HuffmanLasData::process(Renderer *renderer) {
       size_t offset = (this->task->batchIdx * POINTS_PER_WORKGROUP * sizeof(arr[0])) / 4;
 #endif
       size_t size = arr.size() * sizeof(arr[0]);
-      glNamedBufferSubData(this->Colors.handle, offset, size, arr.data());
+      cuMemcpyHtoD(this->Colors.handle + offset, arr.data(), size);
     }
 
     // reset the task pointer so that the reader thread can fill it

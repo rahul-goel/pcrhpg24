@@ -74,6 +74,13 @@ target_link_libraries(${PROJECT_NAME}
 	CUDA::nvrtc
 	CUDA::nvrtc_static
 	CUDA::nvrtc_builtins_static)
+target_include_directories(preprocess PRIVATE
+	CUDAToolkit_INCLUDE_DIRS)
+target_link_libraries(preprocess
+	CUDA::cuda_driver
+	CUDA::nvrtc
+	CUDA::nvrtc_static
+	CUDA::nvrtc_builtins_static)
 
 # OpenGL
 find_package(OpenGL REQUIRED)

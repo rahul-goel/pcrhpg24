@@ -34,30 +34,8 @@ struct HuffmanMemIter : public Method {
   // framebuffer - neither an input, nor an output, that's why cuda pointer
 	CUdeviceptr fb;
 
-  // inputs and outputs, hence GL interop
-  CUgraphicsResource BatchData;
-  CUgraphicsResource StartValues;
-  CUgraphicsResource EncodedData;
-  CUgraphicsResource SeparateData;
-  CUgraphicsResource SeparateDataSizes;
-  CUgraphicsResource DecoderTableValues;
-  CUgraphicsResource DecoderTableCWLen;
-  CUgraphicsResource ClusterSizes;
-  CUgraphicsResource Colors;
-
 	CUgraphicsResource output;
   CUevent start, end;
-
-  CUdeviceptr BatchData_ptr;
-  CUdeviceptr StartValues_ptr;
-  CUdeviceptr EncodedData_ptr;
-  CUdeviceptr SeparateData_ptr;
-  CUdeviceptr SeparateDataSizes_ptr;
-  CUdeviceptr DecoderTableValues_ptr;
-  CUdeviceptr DecoderTableCWLen_ptr;
-  CUdeviceptr ClusterSizes_ptr;
-  CUdeviceptr Colors_ptr;
-
 
   shared_ptr<HuffmanLasData> las = nullptr;
   Renderer *renderer;
@@ -82,25 +60,6 @@ struct HuffmanMemIter : public Method {
 
 	~HuffmanMemIter() {
 		if (registered) {
-      vector<CUgraphicsResource> persistent_resources = {
-        BatchData, StartValues,
-        EncodedData,
-        SeparateData, SeparateDataSizes,
-        DecoderTableValues, DecoderTableCWLen, ClusterSizes, Colors
-      };
-
-      cuGraphicsUnmapResources(persistent_resources.size(),
-                               persistent_resources.data(),
-                               ((CUstream)CU_STREAM_DEFAULT));
-      cuGraphicsUnregisterResource(BatchData);
-      cuGraphicsUnregisterResource(StartValues);
-      cuGraphicsUnregisterResource(EncodedData);
-      cuGraphicsUnregisterResource(SeparateData);
-      cuGraphicsUnregisterResource(SeparateDataSizes);
-      cuGraphicsUnregisterResource(DecoderTableValues);
-      cuGraphicsUnregisterResource(DecoderTableCWLen);
-      cuGraphicsUnregisterResource(ClusterSizes);
-      cuGraphicsUnregisterResource(Colors);
       cuGraphicsUnregisterResource(output);
 		}
   }
@@ -175,29 +134,8 @@ struct HuffmanMemIter : public Method {
 
     // register the buffers to be used from cuda
     if (!registered) {
-      // register xyz, rgba, batch data to be read only from cuda
-
-      cuGraphicsGLRegisterBuffer(&BatchData,           las->BatchData.handle,           CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
-      cuGraphicsGLRegisterBuffer(&StartValues,         las->StartValues.handle,         CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
-      cuGraphicsGLRegisterBuffer(&EncodedData,         las->EncodedData.handle,         CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
-      cuGraphicsGLRegisterBuffer(&SeparateData,        las->SeparateData.handle,        CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
-      cuGraphicsGLRegisterBuffer(&SeparateDataSizes,   las->SeparateDataSizes.handle,   CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
-      cuGraphicsGLRegisterBuffer(&DecoderTableValues,  las->DecoderTableValues.handle,  CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
-      cuGraphicsGLRegisterBuffer(&DecoderTableCWLen,   las->DecoderTableCWLen.handle,   CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
-      cuGraphicsGLRegisterBuffer(&ClusterSizes,        las->ClusterSizes.handle,        CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
-      cuGraphicsGLRegisterBuffer(&Colors,              las->Colors.handle,              CU_GRAPHICS_MAP_RESOURCE_FLAGS_READ_ONLY);
-
       // 2d image that will be re-written again and again by cuda
       cuGraphicsGLRegisterImage(&output, renderer->views[0].framebuffer->colorAttachments[0]->handle, GL_TEXTURE_2D, CU_GRAPHICS_REGISTER_FLAGS_WRITE_DISCARD);
-
-      vector<CUgraphicsResource> persistent_resources = {
-        BatchData, StartValues,
-        EncodedData,
-        SeparateData, SeparateDataSizes,
-        DecoderTableValues, DecoderTableCWLen, ClusterSizes, Colors
-      };
-			cuGraphicsMapResources(persistent_resources.size(), persistent_resources.data(), ((CUstream)CU_STREAM_DEFAULT));
-
       registered = true;
       cout << "Buffers registered" << endl;
     }
@@ -205,15 +143,6 @@ struct HuffmanMemIter : public Method {
     // get pointers for cuda pointers for the common buffers
     if (not mapped or las->numPointsLoaded < las->numPoints) {
       size_t size;
-      cuGraphicsResourceGetMappedPointer(&BatchData_ptr, &size, BatchData);
-      cuGraphicsResourceGetMappedPointer(&StartValues_ptr, &size, StartValues);
-      cuGraphicsResourceGetMappedPointer(&EncodedData_ptr, &size, EncodedData);
-      cuGraphicsResourceGetMappedPointer(&SeparateData_ptr, &size, SeparateData);
-      cuGraphicsResourceGetMappedPointer(&SeparateDataSizes_ptr, &size, SeparateDataSizes);
-      cuGraphicsResourceGetMappedPointer(&DecoderTableValues_ptr, &size, DecoderTableValues);
-      cuGraphicsResourceGetMappedPointer(&DecoderTableCWLen_ptr, &size, DecoderTableCWLen);
-      cuGraphicsResourceGetMappedPointer(&ClusterSizes_ptr, &size, ClusterSizes);
-      cuGraphicsResourceGetMappedPointer(&Colors_ptr, &size, Colors);
       mapped = true;
     }
 
@@ -254,10 +183,10 @@ struct HuffmanMemIter : public Method {
 
       // kernel launch
       void *args[] = {&cdata, &fb,
-      &BatchData_ptr, &StartValues_ptr,
-      &EncodedData_ptr,
-      &SeparateData_ptr, &SeparateDataSizes_ptr,
-      &DecoderTableValues_ptr, &DecoderTableCWLen_ptr, &ClusterSizes_ptr, &Colors_ptr};
+      &las->BatchData.handle, &las->StartValues.handle,
+      &las->EncodedData.handle,
+      &las->SeparateData.handle, &las->SeparateDataSizes.handle,
+      &las->DecoderTableValues, &las->DecoderTableCWLen, &las->ClusterSizes, &las->Colors};
 
       // cout << "launching kernel " << numBatches << " " << WORKGROUP_SIZE << endl;
 			CUresult opt = cuLaunchKernel(renderProg->kernel,
@@ -305,7 +234,7 @@ struct HuffmanMemIter : public Method {
       int groups_y = (fbo->height + 15) / 16;
       int showNumPoints = Debug::showNumPoints;
       int colorizeChunks = Debug::colorizeChunks;
-      void *args[] = { &showNumPoints, &colorizeChunks, &fbo->width, &fbo->height, &output_surf, &fb, &Colors_ptr };
+      void *args[] = { &showNumPoints, &colorizeChunks, &fbo->width, &fbo->height, &output_surf, &fb, &las->Colors };
 
 			cuLaunchKernel(resolveProg->kernel,
 				groups_x, groups_y, 1,

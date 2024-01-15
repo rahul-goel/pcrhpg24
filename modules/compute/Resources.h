@@ -15,6 +15,7 @@
 #define COLOR_COMPRESSION 1 // 0 -> no compression, 1 -> bc1, 7 -> bc7
 
 #include "Renderer.h"
+#include "CudaProgram.h"
 
 enum ResourceState { 
 	UNLOADED,
@@ -31,4 +32,9 @@ struct Resource{
 	virtual void unload(Renderer* renderer) = 0;
 	virtual void process(Renderer* renderer) = 0;
 
+};
+
+struct CuBuffer {
+  CUdeviceptr handle = -1;
+  int64_t size = 0;
 };
