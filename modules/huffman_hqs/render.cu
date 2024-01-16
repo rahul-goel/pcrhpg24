@@ -138,7 +138,7 @@ unsigned int set_color(unsigned int r, unsigned int g, unsigned int b) {
 }
 
 __device__
-unsigned int decode_bc1(int pointID, unsigned char *rgba) {
+unsigned int decode_bc1(unsigned int pointID, unsigned char *rgba) {
   int blockID = pointID / 16;
   int localID = pointID % 16;
   int offset = blockID * 8;

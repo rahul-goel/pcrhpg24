@@ -18,7 +18,7 @@ __global__ void kernel(
 	int pixelID = x + y * width;
 	unsigned int pointID = framebuffer[pixelID];
 	unsigned int color = 0x00443322;
-	if(pointID < 0x7FFFFFFF){
+	if(pointID < 0xFFFFFFFF){
     if (showNumPoints) {
       int NumPointsToRender = framebuffer[pixelID];
       unsigned int shade = (unsigned int) (((float) NumPointsToRender / 512.0) * 255.0);

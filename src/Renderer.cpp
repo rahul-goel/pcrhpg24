@@ -91,7 +91,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 	_controls->onMouseButton(button, action, mods);
 }
 
-void saveImage(char *filepath, GLFWwindow *w) {
+void saveImage(const char *filepath, GLFWwindow *w) {
   int width, height;
   glfwGetFramebufferSize(w, &width, &height);
   GLsizei nrChannels = 3;
