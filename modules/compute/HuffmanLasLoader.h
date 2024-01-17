@@ -1,6 +1,8 @@
 #pragma once
 
 #include <string>
+#include <vector>
+
 #include "GLBuffer.h"
 #include "unsuck.hpp"
 #include "Resources.h"
@@ -8,8 +10,11 @@
 struct HuffmanLasData : public Resource {
   // loader task
   struct LoaderTask {
-    shared_ptr<Buffer> buffer = nullptr;
-    int64_t batchIdx = 0;
+    // shared_ptr<Buffer> buffer = nullptr;
+    // int64_t batchIdx = 0;
+
+	vector<shared_ptr<Buffer>> buffers;
+	vector<int64_t> batchIndices;
   };
 
   string path = "";
@@ -86,6 +91,7 @@ struct HuffmanLasData : public Resource {
     return data;
   }
 
+  void uploadBatch(shared_ptr<Buffer> buffer, int batchIndex, Renderer* renderer);
   void load(Renderer * renderer);
   void unload(Renderer * renderer);
   void process(Renderer * renderer);
