@@ -16,7 +16,7 @@
 #include "compute_loop_las_cuda/compute_loop_las_cuda.h"
 #include "experimental/experimental.h"
 #include "basic_cuda/basic_cuda.h"
-#include "huffman_cuda/huffman_cuda.h"
+// #include "huffman_cuda/huffman_cuda.h"
 #include "huffman_mem_iter_cuda/huffman_mem_iter_cuda.h"
 #include "huffman_hqs/huffman_hqs.h"
 #include "compute_loop_las_hqs/compute_loop_las_hqs.h"
@@ -276,8 +276,8 @@ int main(){
 		// setting.path_las = "D:/dev/pointclouds/tuwien_baugeschichte/candi Banyunibo/candi_banyunibo.las";
 		// setting.path_las = "F:/temp/wgtest/banyunibo_laserscans/merged.las";
 		// setting.path_las = "/home/rg/lidar_data/tree.las";
-		setting.path_las = "/home/rg/lidar_data/morro_bay.las";
-    setting.path_huffman = "/home/rg/repos/compute_rasterizer/out/test.huffman";
+		setting.path_las = "E:/resources/pointclouds/heidentor.las";
+		setting.path_huffman = "E:/resources/rahul/sitn_4.1B.huffman";
     // setting.path_huffman = "/home/rg/repos/compute_rasterizer/out/data/transpose/transpose.huffman";
 		// setting.path_las = "/home/rg/lidar_data/points.las";
 
@@ -367,13 +367,13 @@ int main(){
   { // Rahul's methods
     auto basic1 = new BasicCuda(renderer.get(), las_basic);
   //   auto basic2 = new BasicCuda(renderer.get(), las_basic);
-    auto huffman_cuda = new ComputeHuffman(renderer.get(), las_huffman);
+    //auto huffman_cuda = new ComputeHuffman(renderer.get(), las_huffman);
     auto huffman_mem_iter_cuda = new HuffmanMemIter(renderer.get(), las_huffman);
     auto huffman_hqs = new HuffmanHQS(renderer.get(), las_huffman);
 
 		Runtime::addMethod((Method*) basic1);
 		// Runtime::addMethod((Method*) basic2);
-    Runtime::addMethod((Method*)huffman_cuda);
+    //Runtime::addMethod((Method*)huffman_cuda);
     Runtime::addMethod((Method*)huffman_mem_iter_cuda);
     Runtime::addMethod((Method*)huffman_hqs);
   }

@@ -13,7 +13,7 @@ unsigned int set_color(unsigned int r, unsigned int g, unsigned int b) {
 }
 
 __device__
-unsigned int decode_bc1(int pointID, unsigned char *rgba) {
+unsigned int decode_bc1(unsigned int pointID, unsigned char *rgba) {
   int blockID = pointID / 16;
   int localID = pointID % 16;
   int offset = blockID * 8;
@@ -112,7 +112,7 @@ int linspace_idx(float start, float end, int num_points, int idx){
 }
 
 __device__
-unsigned int decode_bc7(int pointID, unsigned char *rgba) {
+unsigned int decode_bc7(unsigned int pointID, unsigned char *rgba) {
   int blockID = pointID / 16;
   int localID = pointID % 16;
   int offset = blockID * 16;
@@ -164,7 +164,8 @@ __global__ void kernel(
 	int pixelID = x + y * width;
 	unsigned int pointID = framebuffer[pixelID];
 	unsigned int color = 0x00443322;
-	if(pointID < 0x7FFFFFFF){
+	if(pointID < 0xFFFFFFFF)
+	{
     if (showNumPoints) {
       int NumPointsToRender = framebuffer[pixelID];
       unsigned int shade = (unsigned int) (((float) NumPointsToRender / 64.0) * 255.0);

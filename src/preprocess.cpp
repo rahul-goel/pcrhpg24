@@ -1226,7 +1226,7 @@ int main(int argc, char *argv[]) {
 
   // divide into chunks to load
   vector<pair<int64_t, int64_t>> chunk_division;
-  for (int start_idx = 0; start_idx < num_points; start_idx += MAX_POINTS_PER_BATCH) {
+  for (int64_t start_idx = 0; start_idx < num_points; start_idx += MAX_POINTS_PER_BATCH) {
     int64_t num_points_in_chunk = min((int64_t) MAX_POINTS_PER_BATCH, num_points - start_idx);
     chunk_division.push_back({start_idx, num_points_in_chunk});
 
