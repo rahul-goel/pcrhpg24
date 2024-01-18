@@ -130,7 +130,7 @@ struct HuffmanMemIter : public Method {
 
     if (renderProg->kernel == nullptr || resolveProg->kernel == nullptr) return;
     if (las->numPointsLoaded == 0) return;
-    if (las->numPointsLoaded != las->numPoints) return;
+    //if (las->numPointsLoaded != las->numPoints) return;
 
     // register the buffers to be used from cuda
     if (!registered) {

@@ -1,6 +1,8 @@
 #include <thread>
 #include <mutex>
 #include <cassert>
+#include <execution>
+#include <numeric>
 
 #include "compute/Resources.h"
 #include "compute/HuffmanLasLoader.h"
@@ -15,6 +17,7 @@
 using namespace std;
 
 mutex huffman_mtx_state;
+mutex mtx_tasks;
 
 void HuffmanLasData::load(Renderer *renderer) {
   cout << "HuffmanLasData::load()" << endl;
@@ -95,24 +98,41 @@ void HuffmanLasData::load(Renderer *renderer) {
         continue;
       }
 
-      // read the next batch of points
-      int64_t start = ref->offsetToBatchData;
-      if (batchesRead > 0)
-        start += ref->batch_data_sizes_prefix[batchesRead - 1];
-      int64_t size = ref->batch_data_sizes[batchesRead];
-      auto buffer = readBinaryFile(ref->path, start, size);
+      // read the next few batches of points
 
-      auto task = make_shared<LoaderTask>();
-      task->buffer = buffer;
-      task->batchIdx = batchesRead;
-      
-      ref->task = task;
-      batchesRemaining -= 1;
-      batchesRead += 1;
+		auto task = make_shared<LoaderTask>();
+		int numBatchesToLoad = min(batchesRemaining, 100);
+		task->buffers.resize(numBatchesToLoad);
+		task->batchIndices.resize(numBatchesToLoad);
+		vector<int> indices(numBatchesToLoad);
+		std::iota(indices.begin(), indices.end(), 0);
+		std::for_each(std::execution::par_unseq, indices.begin(), indices.end(), [&](int index) {
 
-      Debug::set("numBatchesRead", formatNumber(batchesRead));
-      Debug::set("batchesRemaining", formatNumber(batchesRemaining));
-      // cout << "Read " << batchesRead << " batches" << endl;
+			int batchIndex = index + batchesRead;
+			
+			int64_t start = ref->offsetToBatchData;
+			if (batchIndex > 0)
+				start += ref->batch_data_sizes_prefix[batchIndex - 1];
+
+			int64_t size = ref->batch_data_sizes[batchIndex];
+			auto buffer = readBinaryFile(ref->path, start, size);
+
+			mtx_tasks.lock();
+			task->buffers[index] = buffer;
+			task->batchIndices[index] = batchIndex;
+			
+			mtx_tasks.unlock();
+		});
+
+		batchesRead += numBatchesToLoad;
+		batchesRemaining -= numBatchesToLoad;
+
+		Debug::set("numBatchesRead", formatNumber(batchesRead));
+		Debug::set("batchesRemaining", formatNumber(batchesRemaining));
+
+		mtx_tasks.lock();
+		ref->task = task;
+		mtx_tasks.unlock();
     }
 
     { // check if resource was marked as unloading in the meantime
@@ -153,10 +173,9 @@ void HuffmanLasData::unload(Renderer *renderer) {
   }
 }
 
-void HuffmanLasData::process(Renderer *renderer) {
-  if (this->task) {
-    BatchDumpData bdd;
-    bdd.read_buffer(*this->task->buffer);
+void HuffmanLasData::uploadBatch(shared_ptr<Buffer> buffer, int64_t batchIndex, Renderer *renderer){
+	BatchDumpData bdd;
+    bdd.read_buffer(*buffer);
     int64_t numPointsInBatch = bdd.num_points;
     // cout << "Encoded Sizes: ";
     // for (auto &x : bdd.encoding_sizes) cout << x << " ";
@@ -205,7 +224,7 @@ void HuffmanLasData::process(Renderer *renderer) {
     // write to the GPU
     {
       // GPUBatch
-      size_t offset = GPUBatchSize * this->task->batchIdx;
+      size_t offset = GPUBatchSize * batchIndex;
       size_t size = GPUBatchSize;
       cuMemcpyHtoD(this->BatchData.handle + offset, &batch, size);
     }
@@ -233,7 +252,7 @@ void HuffmanLasData::process(Renderer *renderer) {
     }
     { // start values
       auto &arr = bdd.start_values;
-      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * CLUSTERS_PER_THREAD * 3 * sizeof(arr[0]);
+      size_t offset = batchIndex * WORKGROUP_SIZE * CLUSTERS_PER_THREAD * 3 * sizeof(arr[0]);
       size_t size = arr.size() * sizeof(arr[0]);
       cuMemcpyHtoD(this->StartValues.handle + offset, arr.data(), size);
     }
@@ -253,18 +272,18 @@ void HuffmanLasData::process(Renderer *renderer) {
     }
     { // separate_sizes
       auto &arr = bdd.separate_sizes;
-      size_t offset = this->task->batchIdx * WORKGROUP_SIZE * CLUSTERS_PER_THREAD * sizeof(arr[0]);
+      size_t offset = batchIndex * WORKGROUP_SIZE * CLUSTERS_PER_THREAD * sizeof(arr[0]);
       size_t size = arr.size() * sizeof(arr[0]);
       cuMemcpyHtoD(this->SeparateDataSizes.handle + offset, arr.data(), size);
     }
     { // color
       auto &arr = bdd.color;
 #if COLOR_COMPRESSION==0
-      size_t offset = this->task->batchIdx * POINTS_PER_WORKGROUP * sizeof(arr[0]);
+      size_t offset = batchIndex * POINTS_PER_WORKGROUP * sizeof(arr[0]);
 #elif COLOR_COMPRESSION==1
-      size_t offset = (this->task->batchIdx * POINTS_PER_WORKGROUP * sizeof(arr[0])) / 8;
+      size_t offset = (batchIndex * POINTS_PER_WORKGROUP * sizeof(arr[0])) / 8;
 #elif COLOR_COMPRESSION==7
-      size_t offset = (this->task->batchIdx * POINTS_PER_WORKGROUP * sizeof(arr[0])) / 4;
+      size_t offset = (batchIndex * POINTS_PER_WORKGROUP * sizeof(arr[0])) / 4;
 #endif
       size_t size = arr.size() * sizeof(arr[0]);
       cuMemcpyHtoD(this->Colors.handle + offset, arr.data(), size);
@@ -274,8 +293,22 @@ void HuffmanLasData::process(Renderer *renderer) {
     // cout << "Processed " << this->numBatchesLoaded + 1 << " Batches" << endl;
     this->numBatchesLoaded += 1;
     this->numPointsLoaded += numPointsInBatch;
-    this->task = nullptr;
+    
     Debug::set("numBatchesLoaded", formatNumber(this->numBatchesLoaded));
     Debug::set("numPointsLoaded", formatNumber(this->numPointsLoaded));
-  }
 }
+
+void HuffmanLasData::process(Renderer *renderer) {
+
+    lock_guard<mutex> lock(mtx_tasks);
+    if (this->task) {
+	    for(int i = 0; i < this->task->batchIndices.size(); i++){
+		    auto buffer = this->task->buffers[i];
+            auto batchIndex = this->task->batchIndices[i];
+		    uploadBatch(buffer, batchIndex, renderer);
+	    }
+
+        this->task = nullptr;
+    }
+}
+//}
