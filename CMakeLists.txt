@@ -83,11 +83,13 @@ target_link_libraries(preprocess
 	CUDA::nvrtc_builtins_static)
 
 # TBB
+if (UNIX)
 find_package(TBB REQUIRED)
 target_link_libraries(${PROJECT_NAME} 
   TBB::tbb)
 target_link_libraries(preprocess
   TBB::tbb)
+endif (UNIX)
 
 
 # OpenGL
