@@ -91,7 +91,7 @@ struct HuffmanLasData : public Resource {
     return data;
   }
 
-  void uploadBatch(shared_ptr<Buffer> buffer, int batchIndex, Renderer* renderer);
+  void uploadBatch(shared_ptr<Buffer> buffer, int64_t batchIndex, Renderer* renderer);
   void load(Renderer * renderer);
   void unload(Renderer * renderer);
   void process(Renderer * renderer);

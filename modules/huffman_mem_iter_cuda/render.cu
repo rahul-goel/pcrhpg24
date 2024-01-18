@@ -134,23 +134,54 @@ __device__ void rasterize(const ChangingRenderData& data, unsigned long long int
 
 	float2 imgPos = {(pos.x * 0.5f + 0.5f) * data.uImageSize.x, (pos.y * 0.5f + 0.5f) * data.uImageSize.y};
 	int2 pixelCoords = make_int2(imgPos.x, imgPos.y);
-	int pixelID = pixelCoords.x + pixelCoords.y * data.uImageSize.x;
 
-	unsigned int depth = *((int*)&pos.w);
-	unsigned long long int newPoint;
-  if (data.showNumPoints)
-    newPoint = (((unsigned long long int)depth) << 32) | (NumPointsToRender * CLUSTERS_PER_THREAD);
-  else if (data.colorizeChunks)
-    newPoint = (((unsigned long long int)depth) << 32) | blockIdx.x;
-  else
-    newPoint = (((unsigned long long int)depth) << 32) | index;
+	{ // Render pixel-sized splat
+		int pixelID = pixelCoords.x + pixelCoords.y * data.uImageSize.x;
 
-	if(!(pos.w <= 0.0 || pos.x < -1 || pos.x > 1 || pos.y < -1|| pos.y > 1)){
-		unsigned long long int oldPoint = framebuffer[pixelID];
-		if(newPoint < oldPoint){
-			atomicMin(&framebuffer[pixelID], newPoint);
+		unsigned int depth = *((int*)&pos.w);
+		unsigned long long int newPoint;
+		if (data.showNumPoints)
+			newPoint = (((unsigned long long int)depth) << 32) | (NumPointsToRender * CLUSTERS_PER_THREAD);
+		else if (data.colorizeChunks)
+			newPoint = (((unsigned long long int)depth) << 32) | blockIdx.x;
+		else
+			newPoint = (((unsigned long long int)depth) << 32) | index;
+
+		if(!(pos.w <= 0.0 || pos.x < -1 || pos.x > 1 || pos.y < -1|| pos.y > 1)){
+			unsigned long long int oldPoint = framebuffer[pixelID];
+			if(newPoint < oldPoint){
+				atomicMin(&framebuffer[pixelID], newPoint);
+			}
 		}
 	}
+
+	// render larger splat
+	// for(int ox = -2; ox <= 2; ox++)
+	// for(int oy = -2; oy <= 2; oy++)
+	// {
+	// 	if(pixelCoords.x < 0) continue;
+	// 	if(pixelCoords.y < 0) continue;
+	// 	if(pixelCoords.x + ox >= data.uImageSize.x) continue;
+	// 	if(pixelCoords.y + oy >= data.uImageSize.y) continue;
+		
+	// 	int pixelID = (pixelCoords.x + ox) + (pixelCoords.y + oy) * data.uImageSize.x;
+
+	// 	unsigned int depth = *((int*)&pos.w);
+	// 	unsigned long long int newPoint;
+	// 	if (data.showNumPoints)
+	// 		newPoint = (((unsigned long long int)depth) << 32) | (NumPointsToRender * CLUSTERS_PER_THREAD);
+	// 	else if (data.colorizeChunks)
+	// 		newPoint = (((unsigned long long int)depth) << 32) | blockIdx.x;
+	// 	else
+	// 		newPoint = (((unsigned long long int)depth) << 32) | index;
+
+	// 	if(!(pos.w <= 0.0 || pos.x < -1 || pos.x > 1 || pos.y < -1|| pos.y > 1)){
+	// 		unsigned long long int oldPoint = framebuffer[pixelID];
+	// 		if(newPoint < oldPoint){
+	// 			atomicMin(&framebuffer[pixelID], newPoint);
+	// 		}
+	// 	}
+	// }
 }
 
 __device__
@@ -179,7 +210,7 @@ void kernel(const ChangingRenderData           cdata,
   unsigned int batchIndex = blockIdx.x;
   unsigned int numPointsPerBatch = blockDim.x * cdata.uPointsPerThread;
   unsigned int wgFirstPoint = batchIndex * numPointsPerBatch;
-
+ 
   // batch meta data
   GPUBatch batch = BatchData[batchIndex];
   // double3 las_scale = make_double3(batch.scale_x, batch.scale_y, batch.scale_z);

@@ -173,7 +173,7 @@ void HuffmanLasData::unload(Renderer *renderer) {
   }
 }
 
-void HuffmanLasData::uploadBatch(shared_ptr<Buffer> buffer, int batchIndex, Renderer *renderer){
+void HuffmanLasData::uploadBatch(shared_ptr<Buffer> buffer, int64_t batchIndex, Renderer *renderer){
 	BatchDumpData bdd;
     bdd.read_buffer(*buffer);
     int64_t numPointsInBatch = bdd.num_points;
