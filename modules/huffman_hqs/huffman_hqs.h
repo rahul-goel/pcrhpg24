@@ -146,7 +146,7 @@ struct HuffmanHQS : public Method {
     }
 
     // get pointers for cuda pointers for the common buffers
-    if (not mapped or las->numPointsLoaded < las->numPoints) {
+    if (!mapped || las->numPointsLoaded < las->numPoints) {
       size_t size;
       mapped = true;
     }
