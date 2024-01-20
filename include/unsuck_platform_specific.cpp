@@ -170,6 +170,10 @@ CpuData getCpuData() {
 #include "stdio.h"
 #include "string.h"
 
+void toClipboard(string str) {
+	// TODO
+}
+
 int parseLine(char* line){
     // This assumes that a digit will be found and the line ends in " Kb".
     int i = strlen(line);
@@ -368,6 +372,12 @@ CpuData getCpuData() {
 	data.usage = getCpuUsage();
 
 	return data;
+}
+
+#else
+
+void toClipboard(string str) {
+	// TODO
 }
 
 

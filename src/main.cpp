@@ -74,200 +74,7 @@ int main(){
 	};
 	
 	unordered_map<string, Setting> settings;
-	
-	{ // RETZ
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/retz/potree"; 
-		setting.path_las = "F:/temp/wgtest/retz/pointcloud.las"; 
-		setting.yaw = 6.91;
-		setting.pitch = -0.78;
-		setting.radius = 569.49;
-		setting.target = {569.57, 867.56, 29.91};
 
-		settings["retz"] = setting;
-	}
-	
-	{ // Eclepens original
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/eclepens/potree";
-		setting.path_las = "F:/temp/wgtest/eclepens/eclepens.las";
-		setting.yaw = 6.65;
-		setting.pitch = -0.71;
-		setting.radius = 1109.77;
-		setting.target = {514.05, 475.84, -156.43};
-
-		settings["eclepens_original"] = setting;
-	}
-
-	{ // Eclepens original closeup
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/eclepens/potree";
-		setting.path_las = "F:/temp/wgtest/eclepens/eclepens.las";
-		setting.yaw = 13.14;
-		setting.pitch = -0.03;
-		setting.radius = 76.96;
-		setting.target = {564.03, 330.49, 19.08};
-
-		settings["eclepens_original_closeup"] = setting;
-	}
-
-	{ // Eclepens - morton
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/eclepens/potree";
-		setting.path_las = "F:/temp/wgtest/eclepens/eclepens_morton.las";
-		setting.yaw = 6.65;
-		setting.pitch = -0.71;
-		setting.radius = 1109.77;
-		setting.target = {514.05, 475.84, -156.43};
-
-		settings["eclepens_morton"] = setting;
-	}
-
-	{ // Eclepens - morton closeup
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/eclepens/potree";
-		setting.path_las = "F:/temp/wgtest/eclepens/eclepens_morton.las";
-		setting.yaw = 13.14;
-		setting.pitch = -0.03;
-		setting.radius = 76.96;
-		setting.target = {564.03, 330.49, 19.08};
-
-		settings["eclepens_morton_closeup"] = setting;
-	}
-	
-	{ // Eclepens at home
-		Setting setting;
-		setting.path_potree = "E:/dev/pointclouds/paper_testdata/eclepens/potree";
-		setting.path_las = "E:/dev/pointclouds/paper_testdata/eclepens/eclepens_morton.las";
-		setting.yaw = 6.65;
-		setting.pitch = -0.71;
-		setting.radius = 1109.77;
-		setting.target = {514.05, 475.84, -156.43};
-
-		settings["eclepens_morton_home"] = setting;
-	}
-
-	{// MORRO BAY original
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/morro_bay/potree_morro_bay_278M_morton"; 
-		setting.path_las = "F:/temp/wgtest/morro_bay/morro_bay_278M.las"; 
-		setting.yaw = -0.15;
-		setting.pitch = -0.57;
-		setting.radius = 3166.32;
-		setting.target = {2239.05, 1713.63, -202.02};
-
-		settings["morrobay_original"] = setting;
-	}
-
-	{// MORRO BAY original closeup
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/morro_bay/potree_morro_bay_278M_morton"; 
-		setting.path_las = "F:/temp/wgtest/morro_bay/morro_bay_278M.las"; 
-		setting.yaw = -1.68;
-		setting.pitch = -0.39;
-		setting.radius = 69.96;
-		setting.target = {1625.87, 2362.57, 29.96};
-
-		settings["morrobay_original_closeup"] = setting;
-	}
-
-	{// MORRO BAY morton
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/morro_bay/potree_morro_bay_278M_morton"; 
-		setting.path_las = "F:/temp/wgtest/morro_bay/morro_bay_278M_morton.las"; 
-		setting.yaw = -0.15;
-		setting.pitch = -0.57;
-		setting.radius = 3166.32;
-		setting.target = {2239.05, 1713.63, -202.02};
-
-		settings["morrobay_morton"] = setting;
-	}
-
-	{// MORRO BAY morton closeup
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/morro_bay/potree_morro_bay_278M_morton"; 
-		setting.path_las = "F:/temp/wgtest/morro_bay/morro_bay_278M_morton.las"; 
-		setting.yaw = -1.68;
-		setting.pitch = -0.39;
-		setting.radius = 69.96;
-		setting.target = {1625.87, 2362.57, 29.96};
-
-		settings["morrobay_morton_closeup"] = setting;
-	}
-
-	{ // ENDEAVOR
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/endeavor/potree"; 
-		setting.path_las = "F:/temp/wgtest/endeavor/morton.las"; 
-		setting.yaw = -12.08;
-		setting.pitch = -0.60;
-		setting.radius = 149.96;
-		setting.target = {609.85, 610.98, 510.22};
-
-		settings["endeavor"] = setting;
-	}
-
-
-	{ // Candi Banyunibo outside
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/candi_banyunibo/potree"; 
-		setting.path_las = "F:/temp/wgtest/candi_banyunibo/morton.las"; 
-		setting.yaw = -13.63;
-		setting.pitch = 0.07;
-		setting.radius = 20.26;
-		setting.target = {38.64, 29.22, 5.23};
-
-		settings["banyunibo_outside_morton"] = setting;
-	}
-
-	{ // Candi Banyunibo inside
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/candi_banyunibo/potree"; 
-		setting.path_las = "F:/temp/wgtest/candi_banyunibo/candi_banyunibo.las"; 
-		setting.yaw = -18.35;
-		setting.pitch = 0.32;
-		setting.radius = 3.01;
-		setting.target = {41.48, 31.31, 4.96};
-
-		settings["banyunibo_inside"] = setting;
-	}
-
-	{ // Candi Banyunibo inside
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/candi_banyunibo/potree"; 
-		setting.path_las = "F:/temp/wgtest/candi_banyunibo/morton.las"; 
-		setting.yaw = -18.35;
-		setting.pitch = 0.32;
-		setting.radius = 3.01;
-		setting.target = {41.48, 31.31, 4.96};
-
-		settings["banyunibo_inside_morton"] = setting;
-	}
-
-	{ // Candi Banyunibo inside
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/candi_banyunibo/potree"; 
-		setting.path_las = "F:/temp/wgtest/candi_banyunibo/candi_banyunibo.las"; 
-		setting.yaw = -13.63;
-		setting.pitch = 0.07;
-		setting.radius = 20.26;
-		setting.target = {38.64, 29.22, 5.23};
-
-		settings["banyunibo_outside"] = setting;
-	}
-
-
-	{ // Niederweiden
-		Setting setting;
-		setting.path_potree = "F:/temp/wgtest/niederweiden/potree"; 
-		setting.path_las = "F:/temp/wgtest/niederweiden/morton.las"; 
-		setting.yaw = 14.51;
-		setting.pitch = -0.59;
-		setting.radius = 76.96;
-		setting.target = {62.38, 85.53, 3.14};
-
-		settings["niederweiden_morton"] = setting;
-	}
 
 	{ // Test
 		Setting setting;
@@ -278,7 +85,7 @@ int main(){
 		// setting.path_las = "/home/rg/lidar_data/tree.las";
 		setting.path_las = "E:/resources/pointclouds/heidentor.las";
 		setting.path_huffman = "E:/resources/rahul/sitn_4.1B.huffman";
-    // setting.path_huffman = "/home/rg/repos/compute_rasterizer/out/data/transpose/transpose.huffman";
+		// setting.path_huffman = "/home/rg/repos/compute_rasterizer/out/data/transpose/transpose.huffman";
 		// setting.path_las = "/home/rg/lidar_data/points.las";
 
 		// outside
@@ -286,6 +93,7 @@ int main(){
 		setting.pitch = -0.18;
 		setting.radius = 8.60;
 		setting.target = {25.09, 36.09, 2.77};
+		
 
 		// Inside
 		setting.yaw = 6.69;
@@ -301,21 +109,108 @@ int main(){
 		settings["arbegen"] = setting;
 	}
 
-	// parametric functions
-	// renderer->controls->yaw = 0.41;
-	// renderer->controls->pitch = -0.51;
-	// renderer->controls->radius = 13.45;
-	// renderer->controls->target = {0.00, 0.00, 0.00};
+	{ // NEUCHATEL
+		Setting setting;
+		setting.path_las     = "E:/resources/pointclouds/heidentor.las";
+		setting.path_huffman = "E:/resources/rahul/sitn_4.1B.huffman";
 
-	// retz
-	// eclepens_original, eclepens_morton,
-	// eclepens_original_closeup, eclepens_morton_closeup,
-	// morrobay_original, morrobay_morton
-	// morrobay_original_closeup, morrobay_morton_closeup
-	// banyunibo_outside, banyunibo_outside_morton
-	// banyunibo_inside, banyunibo_inside_morton
-	// niederweiden_morton
-	Setting& setting = settings["arbegen"];
+		// overview
+		setting.yaw = -0.01;
+		setting.pitch = -0.63;
+		setting.radius = 3166.32;
+		setting.target = {1826.89, 1679.88, 124.76};
+
+		// closeup
+		// setting.yaw = -0.52;
+		// setting.pitch = -0.43;
+		// setting.radius = 123.94;
+		// setting.target = {1382.48, 1200.98, 118.31};
+
+		settings["neuchatel"] = setting;
+	}
+
+	{ // FERRUM
+		Setting setting;
+		setting.path_las     = "E:/resources/pointclouds/heidentor.las";
+		setting.path_huffman = "E:/resources/rahul/ca21_ferrum.huffman";
+
+		// overview
+		setting.yaw = -1.13;
+		setting.pitch = -0.64;
+		setting.radius = 1008.89;
+		setting.target = { 700.99, 582.17, 16.55 };
+
+		// closeup
+		//setting.yaw = 0.05;
+		//setting.pitch = -0.22;
+		//setting.radius = 47.78;
+		//setting.target = { 842.60, 301.91, 1.48 };
+
+		settings["ferrum"] = setting;
+	}
+
+	{ // Salt Creek
+		Setting setting;
+		setting.path_las = "E:/resources/pointclouds/heidentor.las";
+		setting.path_huffman = "E:/resources/rahul/ca21_saltcreek.huffman";
+
+		// overview
+		setting.yaw = -3.28;
+		setting.pitch = -0.64;
+		setting.radius = 1008.89;
+		setting.target = { 340.13, 556.35, -117.12 };
+
+		// closeup
+		// setting.yaw = 0.99;
+		// setting.pitch = -0.42;
+		// setting.radius = 32.64;
+		// setting.target = { 634.79, 538.68, 6.89 };
+
+		settings["saltcreek"] = setting;
+	}
+
+	{ // Candi Banyunibo
+		Setting setting;
+		setting.path_las = "E:/resources/pointclouds/heidentor.las";
+		setting.path_huffman = "E:/resources/rahul/candi_banyunibo.huffman";
+
+		// outside
+		setting.yaw = -13.63;
+		setting.pitch = 0.07;
+		setting.radius = 20.26;
+		setting.target = { 38.64, 29.22, 5.23 };
+
+		// inside
+		//setting.yaw = -18.35;
+		//setting.pitch = 0.32;
+		//setting.radius = 3.01;
+		//setting.target = {41.48, 31.31, 4.96};
+
+		settings["banyubibo"] = setting;
+	}
+
+	{ // Morro Bay
+		Setting setting;
+		setting.path_las = "E:/resources/pointclouds/heidentor.las";
+		setting.path_huffman = "E:/resources/rahul/morro_bay.huffman";
+
+		// overview
+		setting.yaw = -0.15;
+		setting.pitch = -0.57;
+		setting.radius = 3166.32;
+		setting.target = { 2239.05, 1713.63, -202.02 };
+
+		// closeup
+		//setting.yaw = -1.68;
+		//setting.pitch = -0.39;
+		//setting.radius = 69.96;
+		//setting.target = { 1625.87, 2362.57, 29.96 };
+
+		settings["morrobay"] = setting;
+	}
+
+
+	Setting& setting = settings["morrobay"];
 	
 	renderer->controls->yaw = setting.yaw;
 	renderer->controls->pitch = setting.pitch;

@@ -139,11 +139,13 @@ void Renderer::init(){
 	GLFWmonitor** monitors = glfwGetMonitors(&numMonitors);
 
 	cout << "<create windows>" << endl;
+	int width = 1920;
+	int height = 1080;
 	if (numMonitors > 1) {
 		const GLFWvidmode * modeLeft = glfwGetVideoMode(monitors[0]);
 		const GLFWvidmode * modeRight = glfwGetVideoMode(monitors[1]);
 
-		window = glfwCreateWindow(modeRight->width, modeRight->height - 300, "Simple example", nullptr, nullptr);
+		window = glfwCreateWindow(width, height, "Simple example", nullptr, nullptr);
 
 		if (!window) {
 			glfwTerminate();
@@ -154,14 +156,14 @@ void Renderer::init(){
 	} else {
 		const GLFWvidmode * mode = glfwGetVideoMode(monitors[0]);
 
-		window = glfwCreateWindow(mode->width / 2, mode->height / 2, "Simple example", nullptr, nullptr);
+		window = glfwCreateWindow(width, height, "Simple example", nullptr, nullptr);
 
 		if (!window) {
 			glfwTerminate();
 			exit(EXIT_FAILURE);
 		}
 
-		glfwSetWindowPos(window, mode->width / 2, 2 * mode->height / 3);
+		glfwSetWindowPos(window, 0, 0);
 	}
 
 	cout << "<set input callbacks>" << endl;
@@ -574,9 +576,9 @@ void Renderer::loop(function<void(void)> update, function<void(void)> render){
 				ss << "renderer->controls->target = {" << target.x << ", " << target.y << ", " << target.z << "};" << endl;
 
 				string str = ss.str();
-        cout << str << endl;
+				cout << str << endl;
 				
-				// toClipboard(str);
+				toClipboard(str);
 			}
 
 			if (ImGui::Button("copy vr matrices")) {
