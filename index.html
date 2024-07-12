@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html><head lang="en"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+
+    <title>Real-Time Decompression and Rasterization of Massive Point Clouds</title>
+
+    <meta name="description" content="">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Real-Time Decompression and Rasterization of Massive Point Clouds">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Real-Time Decompression and Rasterization of Massive Point Clouds">
+
+
+    <!-- mirror: F0%9F%AA%9E&lt -->
+    <link rel="stylesheet" href="css/bootstrap.min.css">
+    <link rel="stylesheet" href="css/font-awesome.min.css">
+    <link rel="stylesheet" href="css/codemirror.min.css">
+    <link rel="stylesheet" href="css/app.css">
+
+    <script src="js/jquery.min.js"></script>
+    <script src="js/bootstrap.min.js"></script>
+    <script src="js/codemirror.min.js"></script>
+    <script src="js/clipboard.min.js"></script>
+    <script src="js/video_comparison.js"></script>
+    <script src="js/app.js"></script>
+</head>
+
+<body>
+    <div class="container" id="header" style="text-align: center; margin: auto;">
+        <div class="row" id="title-row" style="max-width: 100%; margin: 0 auto; display: inline-block">
+            <h2 class="col-md-12 text-center" id="title">
+                Real-Time Decompression and Rasterization of Massive Point Clouds<br>
+                <small>
+                    High Performance Graphics 2024
+                </small>
+            </h2>
+        </div>
+        <div class="row" id="author-row" style="margin:0 auto;">
+            <div class="col-md-12 text-center" style="display: table; margin:0 auto">
+                <table class="author-table" id="author-table">
+                    <tr>
+                        <td>
+                            <a style="text-decoration:none" href="https://rahulgoel.xyz">
+                              Rahul Goel
+                            </a>
+                            <br>IIIT Hyderabad
+                        </td>
+                        <td>
+                            <a style="text-decoration:none" href="https://www.cg.tuwien.ac.at/staff/MarkusSch%C3%BCtz">
+                             Markus Schütz
+                            </a>
+                            <br>TU Wien
+                        </td>
+                        <td>
+                            <a style="text-decoration:none" href="https://scholar.google.co.in/citations?user=3HKjt_IAAAAJ&hl=en">
+                              P.J. Narayanan
+                            </a>
+                            <br>IIIT Hyderabad
+                        </td>
+                        <td>
+                            <a style="text-decoration:none" href="https://snosixtyboo.github.io/">
+                              Bernhard Kerbl
+                            </a>
+                            <br>TU Wien
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <script>
+        document.getElementById('author-row').style.maxWidth = document.getElementById("title-row").clientWidth + 'px';
+    </script>
+    <div class="container" id="main">
+        <br>
+        <div class="container">
+            <div class="col-md-8 col-md-offset-2 text-center" >
+              <a href="./paper.pdf">Paper (30MB)</a>
+              /
+              <a href="./paper_lite.pdf">Paper (4MB)</a>
+              /
+              <a href="./">Publisher's page</a>
+              /
+              <a href="./supp.pdf">Supplementary Document</a>
+              /
+              <a href="https://youtube.com">Video</a>
+              /
+              <a href="https://github.com">Code</a>
+            </div>
+        </div>
+
+
+        <br><br>
+        <div class="row">
+              <div class="text-center">
+                  <img src="./img/t1.jpg" width="40%">
+                  <img src="./img/t2.jpg" width="40%">
+              </div>
+        </div>
+
+
+        <div class="row">
+            <div class="col-md-8 col-md-offset-2">
+                <h3>
+                    Abstract
+                </h3>
+                <p class="text-justify">
+                  Real-life LIDAR scanning generates billions of points that are challenging to visualize. Especially on user-grade hardware, high storage requirements prevent the quick and easy inspection of captured datasets. Current real- time methods are limited by the available GPU memory and render only around 1 billion points interactively. We present an on-the-fly point cloud decompression method that tightly integrates with software rasterization to reduce on-chip memory requirements by 4x. Our method compresses geometry losslessly and provides high visual quality at real-time framerates. We use a GPU-friendly clipped Huffman encoding for compression. Point clouds are divided into equal-sized batches, which are Huffman-encoded independently. Batches are further subdivided to form easy-to-consume streams of data for massively parallel execution. The compressed point clouds are stored in an access-aware manner to achieve coherent GPU memory access and a high L1 cache hit rate at render time. Our approach can decompress and rasterize up to 120 million Huffman-encoded points per millisecond on-the-fly. We evaluate the quality and performance of our approach on various large datasets against the fastest competing methods. We show that we can achieve state-of-the-art in both while simultaneously supporting datasets that surpass the capabilities of other methods. Our approach renders massive 3D point clouds at competitive frame rates and visual quality while consuming significantly less memory, thus unlocking unprecedented performance for the visualization of challenging datasets on commodity GPUs.
+                </p>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-8 col-md-offset-2">
+                <h3>
+                    Citation
+                </h3>
+                <div class="form-group col-md-10 col-md-offset-1">
+                    <textarea id="bibtex" class="form-control" readonly>
+@article{goel2024realtime,
+    title={Real-Time Decompression and Rasterization of Massive Point Clouds},
+    author={Rahul Goel and Markus Sch\"{u}tz and Bernhard Kerbl and P.J. Narayanan},
+    journal={arXiv},
+    year={2024}
+}</textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-8 col-md-offset-2">
+                    <br>
+                The website template was borrowed from <a href="http://mgharbi.com/">Michaël Gharbi</a> and <a href="http://dorverbin.github.io/refnerf">Ref-NeRF</a>.
+                </p>
+            </div>
+        </div>
+    </div>
+
+
+</body></html>
