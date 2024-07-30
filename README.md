@@ -1,3 +1,21 @@
+This is a basic code release. It will be cleaned up in some time. Shaders to
+push until 6B points are to be added as well. Currently, due 32-bit integers,
+4B points are supported.
+
+```
+@article{goel2024realtime,
+    author={Goel, Rahul and Sch\"{u}tz, Markus and Narayanan, P. J. and Kerbl, Bernhard},
+    title={Real-Time Decompression and Rasterization of Massive Point Clouds},
+    journal = {Proceedings of the ACM on Computer Graphics and Interactive Techniques},
+    year={2024},
+    doi = {10.1145/3675373},
+    url = {https://rahul-goel.github.io/pcrhpg24/}
+}
+```
+
+
+**Original README below.**
+
 
 # About
 
