@@ -2,6 +2,10 @@ This is a basic code release. It will be cleaned up in some time. Shaders to
 push until 6B points are to be added as well. Currently, due 32-bit integers,
 4B points are supported.
 
+TODO: add instructions
+TODO: add 6B shader
+TODO: merge optimized preprocess code
+
 ```
 @article{goel2024realtime,
     author={Goel, Rahul and Sch\"{u}tz, Markus and Narayanan, P. J. and Kerbl, Bernhard},
