@@ -1,8 +1,10 @@
 #include <cstdint>
+#include <pstl/glue_execution_defs.h>
 #include <string>
 #include <future>
 #include <queue>
 #include <set>
+#include <chrono>
 
 #include "compute/Resources.h"
 #include "mymorton.h"
@@ -30,8 +32,31 @@ using glm::uvec4;
 #define TARGET_START_RGBA TARGET_START_Z + 4
 #define TARGET_SZ         4 * 4
 
+#define ASSERT_DECOMPRESSION 0
+
 int NUM_CORES = 0;
 bool TRANSPOSE = 0;
+
+static unordered_map<string, vector<std::chrono::time_point<std::chrono::system_clock>>> StopWatch;
+mutex StopWatchMutex;
+void StopWatchTick(string str) {
+  // lock and assign
+  lock_guard<mutex> guard(StopWatchMutex);
+
+  // record after getting the lock
+  auto t = std::chrono::high_resolution_clock::now();
+  StopWatch[str].push_back(t);
+  assert(StopWatch[str].size() % 2 == 1);
+}
+void StopWatchTock(string str) {
+  // record the time immediately
+  auto t = std::chrono::high_resolution_clock::now();
+
+  // lock and assign
+  lock_guard<mutex> guard(StopWatchMutex);
+  StopWatch[str].push_back(t);
+  assert(StopWatch[str].size() % 2 == 0);
+}
 
 struct LasPoints{
 	shared_ptr<Buffer> buffer;
@@ -110,7 +135,9 @@ struct LasLoader{
 		// transform to XYZRGBA
 		auto targetBuffer = make_shared<Buffer>(32 * batchSize_points);
 
-		for(int i = 0; i < batchSize_points; i++){
+    std::vector<unsigned int> indices(batchSize_points);
+    std::iota(indices.begin(), indices.end(), 0);
+    std::for_each(std::execution::par_unseq, indices.cbegin(), indices.cend(), [&](const unsigned int &i) {
 			int64_t offset = i * recordLength;
 
 			int32_t X = rawBuffer->get<int32_t>(offset + 0);
@@ -129,7 +156,7 @@ struct LasLoader{
 			targetBuffer->set<int32_t>(Y, TARGET_SZ * i + TARGET_START_Y); // 4 bytes
 			targetBuffer->set<int32_t>(Z, TARGET_SZ * i + TARGET_START_Z); // 4 bytes
 			targetBuffer->set<uint32_t>(color, TARGET_SZ * i + TARGET_START_RGBA); // 4 bytes
-		}
+    });
 
 		LasPoints laspoints;
 		laspoints.buffer = targetBuffer;
@@ -316,7 +343,7 @@ struct Chain {
   }
 
   void encode(unordered_map<int32_t, pair<uint32_t,int>> &collapsed_dict) {
-    auto hfmn = *hfmn_ptr;
+    auto &hfmn = *hfmn_ptr;
     if (method == full_huffman) {
       encoded.clear();
 
@@ -546,10 +573,12 @@ struct Batch {
       packed_warps[wid] = packed;
       cluster_sizes.push_back(packed.size());
 
+#if ASSERT_DECOMPRESSION==1
       for (int warp_tid = 0; warp_tid < 32; ++warp_tid) {
         chains[StartThreadIdx + warp_tid].decode(decoder_table);
         chains[StartThreadIdx + warp_tid].assert_delta_interleaved_decoded();
       }
+#endif
     }
 
     for (int wid = 1; wid < WORKGROUP_SIZE * CLUSTERS_PER_THREAD / 32; ++wid) {
@@ -715,14 +744,6 @@ struct Batch {
       }
     }
     
-    // let's try re-arranging points in a batch
-    // rearrange_random();
-    // rearrange_radius();
-    // rearrange_flann();
-    // rearrange_uniform_grid();
-    // rearrange_sample_elimination();
-    // rearrange_rahul();
-
     // encode color
     for (int i = 0; i < WORKGROUP_SIZE * CLUSTERS_PER_THREAD; ++i) {
 #if COLOR_COMPRESSION==0
@@ -743,7 +764,7 @@ struct Batch {
 
     hfmn = Huffman<int32_t>();
     hfmn.calculate_frequencies(all_deltas);
-    hfmn.generate_huffman_tree();
+    hfmn.generate_huffman_tree_priority_queue();
     if (method == clipped_huffman) {
       dictionary = hfmn.create_dictionary_pjn<uint32_t>(HUFFMAN_TABLE_SIZE);
       decoder_table = hfmn.get_gpu_huffman_table_pjn<uint32_t>(dictionary, HUFFMAN_TABLE_SIZE);
@@ -753,47 +774,6 @@ struct Batch {
       decoder_table = hfmn.get_gpu_huffman_table();
     }
     hfmn.clear_huffman_tree();
-
-    // int fits_in_a_byte = 0;
-    // long long fits_in_a_byte_freq = 0;
-    // unordered_set<int> already_seen;
-    // for (int i = 0; i < HUFFMAN_TABLE_SIZE; ++i) {
-    //   auto &element = decoder_table[i].first;
-    //   if (already_seen.find(element) != already_seen.end()) continue;
-    //   already_seen.insert(element);
-    //   bool f = (element <= 127) and (element >= -128);
-    //   fits_in_a_byte += f;
-    //   if (f) {
-    //     fits_in_a_byte_freq += hfmn.frequencies.at(element);
-    //   }
-    // }
-    // cout << "\nless than a byte " << (double) fits_in_a_byte / already_seen.size() << endl;
-    // cout << "\npercentage " << (double) fits_in_a_byte_freq / (all_deltas.size()) << endl;
-
-    // for (int i = 0; i < HUFFMAN_TABLE_SIZE; ++i) {
-    //   auto &element = decoder_table[i].first;
-    //   fits_in_a_byte += (element <= 127) and (element >= -128);
-    // }
-
-    // float old_size = 0;
-    // float new_size = 0;
-    // for (int i = 0; i < WORKGROUP_SIZE; ++i) {
-    //   chains[i].hfmn_ptr = &hfmn;
-    //   chains[i].encode(dictionary);
-    // }
-
-    // // // get max chain size
-    // int max_size = chains[0].get_encoded_size();
-    // for (int i = 1; i < WORKGROUP_SIZE; ++i)
-    //   max_size = max(max_size, chains[i].get_encoded_size());
-
-    // for (int i = 0; i < WORKGROUP_SIZE; ++i) {
-    //   if (TRANSPOSE) chains[i].pad_encoded(max_size);
-    //   chains[i].decode(decoder_table);
-    //   chains[i].assert_delta_interleaved_decoded();
-    //   old_size += chains[i].get_og_size();
-    //   new_size += chains[i].get_compressed_size();
-    // }
 
     float old_size = 0;
     float new_size = 0;
@@ -815,10 +795,7 @@ struct Batch {
     cluster_bytes = cluster_sizes.size() * 4;
 
     // add huffman size
-    for (auto &[symbol, cw_len] : decoder_table) {
-      new_size += sizeof(symbol);
-      new_size += sizeof(cw_len);
-    }
+    new_size += decoder_table.size() * (sizeof(decoder_table[0].first) + sizeof(decoder_table[0].second));
     this->compression_ratio = old_size / new_size;
   }
 };
@@ -953,12 +930,16 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
   // read the original data
   vector<int32_t> actual_x(num_points), actual_y(num_points), actual_z(num_points);
   vector<uint32_t> actual_color(num_points);
-  for (int i = 0; i < num_points; ++i) {
-    actual_x[i] = las.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_X);
-    actual_y[i] = las.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_Y);
-    actual_z[i] = las.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_Z);
+  {
+    vector<unsigned int> indices(num_points);
+    iota(indices.begin(), indices.end(), 0);
+    std::for_each(std::execution::par_unseq, indices.cbegin(), indices.cend(), [&] (const unsigned int &i) {
+      actual_x[i] = las.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_X);
+      actual_y[i] = las.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_Y);
+      actual_z[i] = las.buffer->get<int32_t>(TARGET_SZ * i +  TARGET_START_Z);
 
-    actual_color[i] = las.buffer->get<uint32_t>(TARGET_SZ * i +  TARGET_START_RGBA);
+      actual_color[i] = las.buffer->get<uint32_t>(TARGET_SZ * i +  TARGET_START_RGBA);
+    });
   }
   // last batch fix
   int extra_needed = 0;
@@ -974,26 +955,26 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
   num_points += extra_needed;
   cout << "Collected Original Data" << endl;
 
+
   // sort by morton order
   if (sort) {
     auto morton_order = mymorton::get_morton_order(actual_x, actual_y, actual_z);
-    vector<int32_t> tmp;
-    tmp = actual_x;
-    for (int i = 0; i < morton_order.size(); ++i) actual_x[i] = tmp[morton_order[i]];
-    tmp = actual_y;
-    for (int i = 0; i < morton_order.size(); ++i) actual_y[i] = tmp[morton_order[i]];
-    tmp = actual_z;
-    for (int i = 0; i < morton_order.size(); ++i) actual_z[i] = tmp[morton_order[i]];
-
-    vector<uint32_t> c_tmp = actual_color;
-    for (int i = 0; i < morton_order.size(); ++i) actual_color[i] = c_tmp[morton_order[i]];
+    // re-arrange using parallel for loop
+    const int SZ = morton_order.size();
+    std::vector<int> indices(SZ);
+    std::iota(indices.begin(), indices.end(), 0);
+    vector<int32_t> rearranged_x(SZ), rearranged_y(SZ), rearranged_z(SZ);
+    vector<uint32_t> rearranged_color(SZ);
+    std::for_each(std::execution::par_unseq, indices.cbegin(), indices.cend(), [&] (const int &index) {
+      rearranged_x[index] = actual_x[morton_order[index]];
+      rearranged_y[index] = actual_y[morton_order[index]];
+      rearranged_z[index] = actual_z[morton_order[index]];
+      rearranged_color[index] = actual_color[morton_order[index]];
+    });
+    actual_x.swap(rearranged_x); actual_y.swap(rearranged_y); actual_z.swap(rearranged_z);
+    actual_color.swap(rearranged_color);
     cout << "Sorted Points" << endl;
   }
-
-  rgbcx::init(rgbcx::bc1_approx_mode::cBC1Ideal);
-  bc7enc_compress_block_init();
-  // encode_decode_color(actual_color);
-  // encode_decode_color_bc7(actual_color);
 
   // divide into batches
   vector<pair<int,int>> batch_configuration = get_batch_parameters(num_points);
@@ -1017,31 +998,12 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
   cout << "Divided into Batches" << endl;
 
   // calculate huffman encoding for each batch
-  queue<future<void>> futures;
-  int processed = 0;
-  for (int i = 0; i < batches.size(); ++i) {
-    while (futures.size() >= NUM_CORES) {
-      futures.front().get();
-      futures.pop();
-      processed += 1;
-      printf("\r%f", (float) processed / batches.size());
-      fflush(stdout);
-    }
+  std::vector<int> indices(batches.size());
+  std::iota(indices.begin(), indices.end(), 0);
+  std::for_each(std::execution::par_unseq, indices.begin(), indices.end(), [&] (const int &index) {
+    batches[index].calculate();
+  });
 
-    auto lambda = [&batches, i] {
-      batches[i].calculate();
-    };
-    futures.push(async(launch::async, lambda));
-  }
-
-  while (futures.size() > 0) {
-    futures.front().get();
-    futures.pop();
-    processed += 1;
-    printf("\r%f", (float) processed / batches.size());
-    fflush(stdout);
-  }
-  cout << endl;
   cout << "Huffman Encoding done" << endl;
 
   float compression_ratio = 0;
@@ -1206,6 +1168,9 @@ int main(int argc, char *argv[]) {
   // parse command line arguments
   assert(argc == 6); // program name, input file, output file, sort or not, how many cores, transpose or not
 
+  rgbcx::init(rgbcx::bc1_approx_mode::cBC1Ideal);
+  bc7enc_compress_block_init();
+
   vector<string> all_args;
   if (argc > 1) {
     all_args.assign(argv + 1, argv + argc);
@@ -1296,6 +1261,19 @@ int main(int argc, char *argv[]) {
   cout << "Geometry Compression Ratio: " << old_geometry_bytes / new_geometry_bytes << endl;
   cout << "Color Compression Ratio: " << old_color_bytes / new_color_bytes << endl;
   cout << "Total Compression Ratio: " << (old_geometry_bytes + old_color_bytes) / (new_geometry_bytes + new_color_bytes) << endl;
+
+  // cout << "Timing Analysis:" << endl;
+  // for (auto &[key, val] : StopWatch) {
+  //   assert(val.size() % 2 == 0);
+  //   std::chrono::nanoseconds time_taken = 0ns;
+  //   for (int i = 0; i < val.size(); i += 2) {
+  //     time_taken += std::chrono::duration_cast<std::chrono::nanoseconds>(val[i + 1] - val[i]);
+  //   }
+  //   time_taken /= (val.size() / 2);
+
+  //   auto t = time_taken.count();
+  //   cout << key << ": " << t / (1e6) << " milliseconds " << t << " nanoseconds"<< endl;
+  // }
 
   return 0;
 }

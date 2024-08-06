@@ -4,6 +4,7 @@
 #include <numeric>
 #include <climits>
 #include <algorithm>
+#include <execution>
 
 namespace mymorton {
 using mc_t = std::pair<uint32_t, uint64_t>;
@@ -39,16 +40,18 @@ inline std::vector<unsigned int> get_morton_order(std::vector<int32_t> &X, std::
   size_t num_points = X.size();
   std::vector<mc_t> morton_codes(num_points);
 
-  for (size_t i = 0; i < num_points; ++i) {
-    uint32_t shifted_x = (uint32_t) ((int64_t) X[i] - (int64_t) INT_MIN);
-    uint32_t shifted_y = (uint32_t) ((int64_t) Y[i] - (int64_t) INT_MIN);
-    uint32_t shifted_z = (uint32_t) ((int64_t) Z[i] - (int64_t) INT_MIN);
-    morton_codes[i] = get_morton_code_3D(shifted_x, shifted_y, shifted_z);
-  }
+  std::vector<unsigned int> indices(num_points);
+  std::iota(indices.begin(), indices.end(), 0);
+  std::for_each(std::execution::par_unseq, indices.cbegin(), indices.cend(), [&](const int &index) {
+    uint32_t shifted_x = (uint32_t) ((int64_t) X[index] - (int64_t) INT_MIN);
+    uint32_t shifted_y = (uint32_t) ((int64_t) Y[index] - (int64_t) INT_MIN);
+    uint32_t shifted_z = (uint32_t) ((int64_t) Z[index] - (int64_t) INT_MIN);
+    morton_codes[index] = get_morton_code_3D(shifted_x, shifted_y, shifted_z);
+  });
 
   std::vector<unsigned int> order(num_points);
   std::iota(order.begin(), order.end(), 0);
-  std::stable_sort(order.begin(), order.end(), [&morton_codes](const int64_t &a, const int64_t &b) {
+  std::stable_sort(std::execution::par_unseq, order.begin(), order.end(), [&morton_codes](const int64_t &a, const int64_t &b) {
     return morton_codes[a] < morton_codes[b];
   });
   return order;

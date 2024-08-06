@@ -46,10 +46,11 @@ struct Huffman {
   void calculate_frequencies(vector<T> &data) {
     frequencies.clear();
     for (T &item : data) {
-      if (frequencies.find(item) == frequencies.end()) {
+      auto it = frequencies.find(item);
+      if (it == frequencies.end()) {
         frequencies[item] = 1;
       } else {
-        frequencies[item] += 1;
+        it->second += 1;
       }
     }
   }
@@ -88,6 +89,27 @@ struct Huffman {
     }
 
     head = all_nodes.back();
+  }
+
+  void generate_huffman_tree_priority_queue() {
+    priority_queue<HuffmanNode*, vector<HuffmanNode*>, std::function<bool(HuffmanNode*,HuffmanNode*)>> pq(sort_cmp);
+    for (auto &[item, freq] : frequencies) {
+      pq.push(new HuffmanNode(item, freq));
+      ++num_nodes;
+    }
+
+    while (pq.size() > 1) {
+      HuffmanNode *a, *b;
+      a = pq.top();
+      pq.pop();
+      b = pq.top();
+      pq.pop();
+
+      HuffmanNode *parent = merge(a, b);
+      pq.push(parent);
+    }
+
+    head = pq.top();
   }
 
   void clear_huffman_tree(HuffmanNode *node) {
