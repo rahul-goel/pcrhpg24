@@ -1,10 +1,28 @@
-This is a basic code release. It will be cleaned up in some time. Shaders to
-push until 6B points are to be added as well. Currently, due 32-bit integers,
-4B points are supported.
-
-TODO: add instructions
+# README
 TODO: add 6B shader
-TODO: merge optimized preprocess code
+
+Create a build directory to compile the binaries.
+```
+mkdir out
+cd out
+cmake ..
+make -j10
+```
+
+To compress a LAS file:
+```
+cd out
+./preprocess path_to_las.las test.huffman 1
+```
+The last argument is 1 if you want to perform Morton Sorting. It can be set to `0` if you want to disable it. We found Morton Sorting to work better in our cases.
+
+The program looks for the file `out/test.huffman` by default. You can change the path in `src/main.cpp` accordingly.
+
+To launch the renderer, run the following from the root of the project:
+```
+./out/compute_rasterizer
+```
+
 
 ```
 @article{goel2024realtime,
@@ -18,7 +36,7 @@ TODO: merge optimized preprocess code
 ```
 
 
-**Original README below.**
+This work was built on top of [Markus' work](https://github.com/m-schuetz/compute_rasterizer). Original README is included below for completion.
 
 
 # About
