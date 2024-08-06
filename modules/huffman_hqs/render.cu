@@ -138,10 +138,10 @@ unsigned int set_color(unsigned int r, unsigned int g, unsigned int b) {
 }
 
 __device__
-unsigned int decode_bc1(unsigned int pointID, unsigned char *rgba) {
-  int blockID = pointID / 16;
-  int localID = pointID % 16;
-  int offset = blockID * 8;
+unsigned int decode_bc1(unsigned long long pointID, unsigned char *rgba) {
+  unsigned long long blockID = pointID / 16;
+  unsigned long long localID = pointID % 16;
+  unsigned long long offset = blockID * 8;
 
   const void* ptr = (void *) (rgba + offset);
   const bc1_block* pBlock = static_cast<const bc1_block*>(ptr);
@@ -237,10 +237,10 @@ int linspace_idx(float start, float end, int num_points, int idx){
 }
 
 __device__
-unsigned int decode_bc7(int pointID, unsigned char *rgba) {
-  int blockID = pointID / 16;
-  int localID = pointID % 16;
-  int offset = blockID * 16;
+unsigned int decode_bc7(unsigned long long pointID, unsigned char *rgba) {
+  unsigned long long blockID = pointID / 16;
+  unsigned long long localID = pointID % 16;
+  unsigned long long offset = blockID * 16;
 
   unsigned char enc[16];
   for (int i = 0; i < 16; ++i) enc[i] = rgba[offset + i];
@@ -277,7 +277,7 @@ __device__ void rasterize(const ChangingRenderData &data,
                           unsigned long long int *BA,
                           unsigned int *Colors,
                           float3 point,
-                          unsigned int index,
+                          unsigned long long index,
                           unsigned int NumPointsToRender) {
   float4 pos = matMul(data.uTransform, make_float4(point, 1.0f));
 	pos.x = pos.x / pos.w;
@@ -342,7 +342,7 @@ void kernel(const ChangingRenderData           cdata,
                   ) {
   unsigned int batchIndex = blockIdx.x;
   unsigned int numPointsPerBatch = blockDim.x * cdata.uPointsPerThread;
-  unsigned int wgFirstPoint = batchIndex * numPointsPerBatch;
+  unsigned long long wgFirstPoint = (unsigned long long) batchIndex * (unsigned long long) numPointsPerBatch;
 
   // batch meta data
   GPUBatch batch = BatchData[batchIndex];
@@ -466,7 +466,10 @@ void kernel(const ChangingRenderData           cdata,
           already_read += __popc(warp_mask);
         }
 
-        unsigned int pointIndex = wgFirstPoint + (outer * numPointsPerBatch / CLUSTERS_PER_THREAD) + (threadIdx.x * cdata.uPointsPerThread / CLUSTERS_PER_THREAD) + i;
+        unsigned long long pointIndex = wgFirstPoint
+										+ (unsigned long long) (outer * numPointsPerBatch / CLUSTERS_PER_THREAD)
+										+ (unsigned long long) (threadIdx.x * cdata.uPointsPerThread / CLUSTERS_PER_THREAD)
+										+ (unsigned long long) i;
         int3 cur_values = make_int3(decoded[0] + prev_values.x,
                                     decoded[1] + prev_values.y,
                                     decoded[2] + prev_values.z);
@@ -536,7 +539,10 @@ void kernel(const ChangingRenderData           cdata,
           already_read += __popc(warp_mask);
         }
 
-        unsigned int pointIndex = wgFirstPoint + (outer * numPointsPerBatch / CLUSTERS_PER_THREAD) + (threadIdx.x * cdata.uPointsPerThread / CLUSTERS_PER_THREAD) + i;
+        unsigned long long pointIndex = wgFirstPoint
+										+ (unsigned long long) (outer * numPointsPerBatch / CLUSTERS_PER_THREAD)
+										+ (unsigned long long) (threadIdx.x * cdata.uPointsPerThread / CLUSTERS_PER_THREAD)
+										+ (unsigned long long) i;
         int3 cur_values = make_int3(decoded[0] + prev_values.x,
                                     decoded[1] + prev_values.y,
                                     decoded[2] + prev_values.z);

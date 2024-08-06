@@ -124,7 +124,7 @@ __device__ bool intersectsFrustum(const ChangingRenderData& d, float3 wgMin, flo
 	return true;
 }
 
-__device__ void rasterize(const ChangingRenderData& data, unsigned long long int* framebuffer, float3 point, unsigned int index, unsigned int NumPointsToRender)
+__device__ void rasterize(const ChangingRenderData& data, unsigned long long int* framebuffer, float3 point, unsigned long long index, unsigned int NumPointsToRender)
 {
 	float4 pos = matMul(data.uTransform, make_float4(point, 1.0f));
 
@@ -142,7 +142,8 @@ __device__ void rasterize(const ChangingRenderData& data, unsigned long long int
   else if (data.colorizeChunks)
     newPoint = (((unsigned long long int)depth) << 32) | blockIdx.x;
   else
-    newPoint = (((unsigned long long int)depth) << 32) | index;
+    newPoint = (((unsigned long long int)depth) << 32);
+    // newPoint = (((unsigned long long int)depth) << 32) | index;
 
 	if(!(pos.w <= 0.0 || pos.x < -1 || pos.x > 1 || pos.y < -1|| pos.y > 1)){
 		unsigned long long int oldPoint = framebuffer[pixelID];
@@ -177,7 +178,7 @@ void kernel(const ChangingRenderData           cdata,
                   ) {
   unsigned int batchIndex = blockIdx.x;
   unsigned int numPointsPerBatch = blockDim.x * cdata.uPointsPerThread;
-  unsigned int wgFirstPoint = batchIndex * numPointsPerBatch;
+  unsigned long long wgFirstPoint = (unsigned long long) batchIndex * (unsigned long long) numPointsPerBatch;
 
   // batch meta data
   GPUBatch batch = BatchData[batchIndex];
@@ -300,7 +301,10 @@ void kernel(const ChangingRenderData           cdata,
           already_read += __popc(warp_mask);
         }
 
-        unsigned int pointIndex = wgFirstPoint + (outer * numPointsPerBatch / CLUSTERS_PER_THREAD) + (threadIdx.x * cdata.uPointsPerThread / CLUSTERS_PER_THREAD) + i;
+        unsigned long long pointIndex = wgFirstPoint
+										+ (unsigned long long) (outer * numPointsPerBatch / CLUSTERS_PER_THREAD)
+										+ (unsigned long long) (threadIdx.x * cdata.uPointsPerThread / CLUSTERS_PER_THREAD)
+										+ (unsigned long long) i;
         int3 cur_values = make_int3(decoded[0] + prev_values.x,
                                     decoded[1] + prev_values.y,
                                     decoded[2] + prev_values.z);
@@ -370,7 +374,10 @@ void kernel(const ChangingRenderData           cdata,
           already_read += __popc(warp_mask);
         }
 
-        unsigned int pointIndex = wgFirstPoint + (outer * numPointsPerBatch / CLUSTERS_PER_THREAD) + (threadIdx.x * cdata.uPointsPerThread / CLUSTERS_PER_THREAD) + i;
+        unsigned long long pointIndex = wgFirstPoint
+										+ (unsigned long long) (outer * numPointsPerBatch / CLUSTERS_PER_THREAD)
+										+ (unsigned long long) (threadIdx.x * cdata.uPointsPerThread / CLUSTERS_PER_THREAD)
+										+ (unsigned long long) i;
         int3 cur_values = make_int3(decoded[0] + prev_values.x,
                                     decoded[1] + prev_values.y,
                                     decoded[2] + prev_values.z);

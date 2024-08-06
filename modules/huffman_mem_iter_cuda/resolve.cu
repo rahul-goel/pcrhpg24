@@ -177,7 +177,8 @@ __global__ void kernel(
 #if COLOR_COMPRESSION==0
       color = rgba[pointID];
 #elif COLOR_COMPRESSION==1
-      color = decode_bc1(pointID, (unsigned char*) rgba);
+    //   color = decode_bc1(pointID, (unsigned char*) rgba);
+      color = pointID;
 #elif COLOR_COMPRESSION==7
       color = decode_bc7(pointID, (unsigned char*) rgba);
 #endif

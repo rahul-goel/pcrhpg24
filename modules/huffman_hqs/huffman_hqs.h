@@ -127,6 +127,7 @@ struct HuffmanHQS : public Method {
     GLTimerQueries::timestamp("compute-loop-start");
 
     // process the currently loaded batch using the basic las loader implementation
+	// while (las->numPointsLoaded < las->numPoints)
     las->process(renderer);
 
     auto fbo = renderer->views[0].framebuffer;
