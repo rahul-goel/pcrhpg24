@@ -1166,7 +1166,7 @@ Chunk process_chunk(string filename, long long start_idx, long long wanted_point
 
 int main(int argc, char *argv[]) {
   // parse command line arguments
-  assert(argc == 6); // program name, input file, output file, sort or not, how many cores, transpose or not
+  assert(argc == 4); // program name, input file, output file, sort or not
 
   rgbcx::init(rgbcx::bc1_approx_mode::cBC1Ideal);
   bc7enc_compress_block_init();
@@ -1178,8 +1178,8 @@ int main(int argc, char *argv[]) {
   string LASFILE = all_args[0];
   string OUTFILE = all_args[1];
   bool should_sort = (bool) stoi(all_args[2]);
-  NUM_CORES = stoi(all_args[3]);
-  TRANSPOSE = stoi(all_args[4]);
+  // NUM_CORES = stoi(all_args[3]);
+  // TRANSPOSE = stoi(all_args[4]);
 
   auto las = LasLoader::loadSync(LASFILE, 0, 100);
   int64_t num_points = las.fullNumPoints;
