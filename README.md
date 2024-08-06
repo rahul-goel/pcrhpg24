@@ -1,6 +1,4 @@
 # README
-TODO: add 6B shader
-
 Create a build directory to compile the binaries.
 ```
 mkdir out
